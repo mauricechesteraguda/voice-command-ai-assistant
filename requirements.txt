@@ -1,0 +1,3 @@
+SpeechRecognition
+ollama
+gTTS
