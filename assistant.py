@@ -9,7 +9,6 @@ import os
 
 import re
 
-import subprocess
 import threading
 
 global is_talking
@@ -75,21 +74,22 @@ def process_command(command):
     i = 0
     while i < len(sentences):
         m = sentences[i]
-        generate_speech(m, i)
+        generate_speech(m, i, sentences)
         i += 1
-        if not is_talking:
-            # Create a new thread to run the play_audio function
-            audio_thread = threading.Thread(target=speak, args=(len(sentences),))
-            audio_thread.start()  # Start the thread
-
-            is_talking = True
 
     is_talking = False
 
 
-def generate_speech(text, i):
+def generate_speech(text, i, sentences):
+    global is_talking
     tts = gTTS(text, slow=False)
     tts.save("speech" + str(i) + ".mp3")
+    if not is_talking:
+        # Create a new thread to run the play_audio function
+        audio_thread = threading.Thread(target=speak, args=(len(sentences),))
+        audio_thread.start()  # Start the thread
+
+        is_talking = True
 
 
 def speak(num_sentences):
