@@ -1,3 +1,5 @@
+import signal
+import subprocess
 import time
 import speech_recognition as sr
 
@@ -9,14 +11,33 @@ import os
 
 import re
 
-import threading
+import multiprocessing
 
-global is_talking
+import psutil
+
+
+# Define the directory path where the speech files are located
+speech_dir = "speeches/"
+
 is_talking = False
+is_stop = False
+pr = []
 
+# global is_stop
+# is_stop = False
 
 client = Client(host="http://localhost:11434")
 tempo_ratio = 1.3
+
+
+def kill_child_processes(parent_pid, sig=signal.SIGTERM):
+    try:
+        parent = psutil.Process(parent_pid)
+    except psutil.NoSuchProcess:
+        return
+    children = parent.children(recursive=True)
+    for process in children:
+        process.send_signal(sig)
 
 
 def listen_for_command():
@@ -58,52 +79,125 @@ def queue_message(command):
 
 def process_command(command):
     global is_talking
-    response = client.chat(
-        model="llama2:7b",
-        messages=[
-            {
-                "role": "user",
-                "content": system_message + command,
-            },
-        ],
-    )
-    print(response["message"]["content"])
+    global is_stop
+    global pr
+    is_stop = False
 
-    sentences = queue_message(response["message"]["content"])
+    if (
+        "end now" in command
+        or "end statement" in command
+        or "stop now" in command
+        or "shut up" in command
+        or "shutup" in command
+        or "terminate now" in command
+    ):
+        is_stop = True
+        print("Cancelling current response...")
+    else:
+        response = client.chat(
+            model="llama2:7b",
+            messages=[
+                {
+                    "role": "user",
+                    "content": system_message + command,
+                },
+            ],
+        )
+        print(response["message"]["content"])
 
-    i = 0
-    while i < len(sentences):
-        m = sentences[i]
-        generate_speech(m, i, sentences)
-        i += 1
+        sentences = queue_message(response["message"]["content"])
 
-    is_talking = False
+        i = 0
+        while i < len(sentences):
+            m = sentences[i]
+            generate_speech(m, i, sentences)
+            i += 1
+            if is_stop:
+                break
+
+        is_talking = False
 
 
 def generate_speech(text, i, sentences):
     global is_talking
+    global pr
     tts = gTTS(text, slow=False)
-    tts.save("speech" + str(i) + ".mp3")
+    tts.save(speech_dir + "speech" + str(i) + ".mp3")
     if not is_talking:
-        # Create a new thread to run the play_audio function
-        audio_thread = threading.Thread(target=speak, args=(len(sentences),))
-        audio_thread.start()  # Start the thread
+        if i == 0:
+            # Create a Process object to run the custom_function with a parameter
+            process = multiprocessing.Process(target=speak, args=(len(sentences),))
+            process.start()  # Start the process
+
+        else:
+            speak(sentences)
 
         is_talking = True
 
 
 def speak(num_sentences):
-    time.sleep(2)
-    # os.system("mplayer -af scaletempo -speed 1.3 speech" + str(i) + ".mp3")
+    global is_stop
+    time.sleep(1)
+
     for i in range(num_sentences):
-        os.system(f"mplayer -af scaletempo -speed 1.3 speech{i}.mp3")
+        command = [
+            "mplayer",
+            "-af",
+            "scaletempo",
+            "-speed",
+            "1.3",
+            f"speeches/speech{i}.mp3",
+        ]
+        subprocess.run(command)
+        if is_stop:
+            break
 
 
 if __name__ == "__main__":
+    # Create a list of all files in the speech dir
+    files = [f for f in os.listdir(speech_dir) if "speech" in f]
+
+    # Iterate over the list of files and delete each one
+    for file in files:
+        file_path = os.path.join(speech_dir, file)
+        if os.path.isfile(file_path):
+            os.remove(file_path)
+
     while True:
         command = listen_for_command()
         if command and command.lower() == "exit":
             print("Exiting...")
             break
+        elif command and (
+            "end now" in command
+            or "end statement" in command
+            or "stop now" in command
+            or "shut up" in command
+            or "shutup" in command
+            or "terminate now" in command
+        ):
+            print(pr)
+            for p in pr:
+                try:
+                    # # Terminate the process using its PID
+                    # os.kill(p, signal.SIGTERM)
+                    kill_child_processes(p.pid, signal.SIGTERM)
+
+                    # p.terminate()
+                    print("Processes killed...")
+                    print("Cancelling current response...")
+                except:
+                    print("process killing failed...")
+            os.kill(p.pid, signal.SIGTERM)
+            pr = []
+
         elif command:
-            process_command(command)
+            # Create a Process object to run the custom_function with a parameter
+            process = multiprocessing.Process(target=process_command, args=(command,))
+            process.start()  # Start the process
+            # Get the PID of the process
+            print(pr)
+            pr.append(process)
+            print(pr)
+            # # process.join()   # Wait for the process to complete (optional)
+            # process_command(command)
