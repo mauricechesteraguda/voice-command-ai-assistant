@@ -1,6 +1,6 @@
 ### Currently support Linux for now
 
-# Voice Command AI Assistant
+# Voice Command AI Assistant using Ollama LLMs
 
 This project is a voice-activated AI assistant that listens to voice commands, processes them using a large language model, and responds with synthesized speech. The AI assistant can handle natural language queries and generate helpful responses in real time. It includes the ability to interrupt and stop ongoing responses, as well as adjustable speech playback speed.
 
