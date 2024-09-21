@@ -117,9 +117,13 @@ plaintext
 
 .
 ├── app.py                 # Main Python script for the assistant
+
 ├── README.md              # Project documentation
+
 ├── requirements.txt       # Python dependencies
+
 └── speeches/              # Directory where generated speech files are stored
+
 
 Dependencies
 
