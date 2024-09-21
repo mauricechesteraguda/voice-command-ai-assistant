@@ -65,7 +65,7 @@ def listen_for_command():
         return None
 
 
-system_message = "You are a helpful AI assistant. Make your answers to my queries short but very informative as much as possible especially if i am not asking about codes. If the user stated a much shorter response, do it. Now my query is "
+system_message = "You are a helpful AI assistant. Make your answers to my queries short but very informative as much as possible especially if i am not asking about codes. If the user wanted a much shorter response, do it. Now my query is "
 
 
 def queue_message(command):
