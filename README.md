@@ -72,3 +72,75 @@ Before running the project, ensure you have the following installed on your syst
 7. Run the app
 
 `python assistant.py`
+
+
+Usage
+
+    Run the main Python file:
+
+    bash
+
+python assistant.py
+
+The application will start listening for voice commands. Speak your command into your microphone. Example commands:
+
+    "What's the weather today?"
+    "Explain artificial intelligence."
+    "Stop now" (to stop the assistant from talking).
+
+To exit the application, simply say:
+
+bash
+
+    exit
+
+How It Works
+
+    The assistant listens for commands through the microphone using the speech_recognition library.
+    Once a command is captured, it sends the query to the LLaMA model via the ollama client.
+    The assistant converts the AI-generated response into speech using gTTS.
+    Speech is played back using mplayer at an increased speed (adjustable via the tempo_ratio).
+
+Cancelling Responses
+
+You can interrupt the assistant while it is speaking by saying commands like:
+
+    "Stop now"
+    "Shut up"
+    "End now"
+    "Terminate now"
+
+The assistant will stop speaking and cancel any further responses.
+Project Structure
+
+plaintext
+
+.
+├── app.py                 # Main Python script for the assistant
+├── README.md              # Project documentation
+├── requirements.txt       # Python dependencies
+└── speeches/              # Directory where generated speech files are stored
+
+Dependencies
+
+    Google Speech Recognition
+    gTTS
+    psutil
+    mplayer
+    Ollama Client (For LLaMA model inference)
+
+You can install these dependencies using the following command:
+
+bash
+
+pip install -r requirements.txt
+
+Acknowledgments
+
+    Google Speech Recognition for the speech-to-text functionality.
+    Google Text-to-Speech (gTTS) for converting text responses to audio.
+    LLaMA AI Model for generating intelligent responses.
+
+License
+
+This project is licensed under the GNU Affero General Public License v3.0 (AGPL-3.0) License. See the LICENSE file for details.
