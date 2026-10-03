@@ -1,203 +1,194 @@
+"""macOS local voice assistant CLI.
+
+implementation-10032026-Maurice
+"""
+from __future__ import annotations
+
+import argparse
+import json
+import logging
 import signal
-import subprocess
-import time
-import speech_recognition as sr
+import sys
+import threading
+import traceback
+import uuid
+from types import SimpleNamespace
+from typing import Any
 
-from ollama import Client
-
-from gtts import gTTS
-
-import os
-
-import re
-
-import multiprocessing
-
-import psutil
-
-
-# Define the directory path where the speech files are located
-speech_dir = "speeches/"
-
-is_talking = False
-is_stop = False
-pr = []
-
-# global is_stop
-# is_stop = False
-
-client = Client(host="http://localhost:11434")
-tempo_ratio = 1.3
+from conversation_orchestrator import (
+    ConversationOrchestrator,
+    ExplicitModelProvisioner,
+    FFmpegMicrophoneCapture,
+    MLXWhisperTranscriber,
+    OllamaStreamingAdapter,
+    SayPlayer,
+    TextSynthesizer,
+    traced,
+)
 
 
-def kill_child_processes(parent_pid, sig=signal.SIGTERM):
-    try:
-        parent = psutil.Process(parent_pid)
-    except psutil.NoSuchProcess:
-        return
-    children = parent.children(recursive=True)
-    for process in children:
-        process.send_signal(sig)
+logger = logging.getLogger("assistant")
+
+_CLI_ERROR_CODES = {
+    "runtime_factory": "RUNTIME_FACTORY_FAILED",
+    "run_conversation": "CONVERSATION_LOOP_FAILED",
+    "provision": "MODEL_PROVISION_FAILED",
+    "shutdown": "SHUTDOWN_FAILED",
+}
 
 
-def listen_for_command():
-    recognizer = sr.Recognizer()
-
-    with sr.Microphone() as source:
-        print("Listening for command...")
-        recognizer.adjust_for_ambient_noise(source)  # Adjust for ambient noise
-        audio = recognizer.listen(source)
-
-    try:
-        print("Recognizing command...")
-        command = recognizer.recognize_google(audio)
-        print("You said:", command)
-        return command
-    except sr.UnknownValueError:
-        print("Sorry, I didn't catch that. Please try again.")
-        return None
-    except sr.RequestError as e:
-        print(
-            "Could not request results from Google Speech Recognition service; {0}".format(
-                e
-            )
-        )
-        return None
-
-
-system_message = "You are a helpful AI assistant. Make your answers to my queries short but very informative as much as possible especially if i am not asking about codes. If the user wanted a much shorter response, do it. Now my query is "
-
-
-def queue_message(command):
-    # Regular expression pattern to match sentence endings (. ! ?)
-    sentence_endings = r"(?<!\w\.\w.)(?<![A-Z][a-z]\.)(?<=\.|\?|!)\s"
-    sentences = re.split(sentence_endings, command)
-    # Remove any empty strings in the list
-    sentences = [sentence.strip() for sentence in sentences if sentence.strip() != ""]
-    return sentences
+@traced
+def _cli_event(event: str, *, level: int = logging.INFO, operation: str | None = None,
+               runtime: Any = None, exc: BaseException | None = None,
+               remediation: str | None = None) -> None:
+    """Write the CLI's redacted operational events using the runtime schema."""
+    payload: dict[str, Any] = {
+        "event": event,
+        "severity": {logging.DEBUG: "DEBUG", logging.INFO: "INFO",
+                     logging.WARNING: "WARNING", logging.ERROR: "ERROR",
+                     logging.CRITICAL: "CRITICAL"}.get(level, "ERROR"),
+        "session_id": getattr(runtime, "session_id", "") or uuid.uuid4().hex[:12],
+        "correlation_id": getattr(runtime, "correlation_id", "") or uuid.uuid4().hex,
+    }
+    if operation:
+        payload["operation"] = operation
+    if event == "error":
+        payload["error_code"] = _CLI_ERROR_CODES.get(operation or "", "CLI_OPERATION_FAILED")
+    if exc is not None:
+        payload.update({
+            "exception_type": type(exc).__name__,
+            "cause": type(exc.__cause__).__name__ if exc.__cause__ else type(exc).__name__,
+            # Deliberately omit filenames and source lines: exception messages can
+            # contain prompts, paths, credentials, or other user-controlled data.
+            "stack_trace": "\n".join(
+                f"at {frame.name}:line {frame.lineno}"
+                for frame in traceback.extract_tb(exc.__traceback__)
+            ) or "at cli boundary",
+        })
+    if remediation:
+        payload["remediation"] = remediation
+    logger.log(level, json.dumps(payload, sort_keys=True))
 
 
-def process_command(command):
-    global is_talking
-    global is_stop
-    global pr
-    is_stop = False
+@traced
+def _configure_logging(verbose: bool = False) -> None:
+    logging.basicConfig(level=logging.DEBUG if verbose else logging.INFO, format="%(asctime)s %(levelname)s %(name)s %(message)s")
 
-    if (
-        "end now" in command
-        or "end statement" in command
-        or "stop now" in command
-        or "shut up" in command
-        or "shutup" in command
-        or "terminate now" in command
-    ):
-        is_stop = True
-        print("Cancelling current response...")
+
+@traced
+def _build_parser() -> argparse.ArgumentParser:
+    parser = argparse.ArgumentParser(description="Local macOS voice assistant; audio and transcripts stay local by default.")
+    parser.add_argument("--download-model", action="store_true", help="explicitly provision a configured model artifact")
+    parser.add_argument("--model-path", help="existing local model artifact path")
+    parser.add_argument("--model", default="llama3.2")
+    parser.add_argument("--verbose", action="store_true")
+    return parser
+
+
+@traced
+def _validate_dependencies() -> None:
+    if sys.platform != "darwin":
+        _cli_event("dependency", level=logging.WARNING, operation="dependency_check",
+                   remediation="Run the assistant on macOS with its local adapters installed.")
     else:
-        response = client.chat(
-            model="llama2:7b",
-            messages=[
-                {
-                    "role": "user",
-                    "content": system_message + command,
-                },
-            ],
+        _cli_event("dependency", operation="dependency_check")
+
+
+@traced
+def build_runtime(*, model: str = "llama3.2", model_path: str | None = None,
+                  adapters: Any = None, config: dict[str, Any] | None = None) -> ConversationOrchestrator:
+    """Compose production ports without opening hardware or downloading models.
+
+    ``adapters`` is an explicit test seam.  Otherwise every port is local and
+    lazy: construction does not touch AVFoundation, MLX, Ollama, or ``say``.
+    """
+    if adapters is None:
+        adapters = SimpleNamespace(
+            audio_capture=FFmpegMicrophoneCapture(device=":0"),
+            transcriber=MLXWhisperTranscriber(model_path or "models/whisper"),
+            language_model=OllamaStreamingAdapter(model=model, host="http://127.0.0.1:11434"),
+            synthesizer=TextSynthesizer(),
+            player=SayPlayer(executable="/usr/bin/say"),
+            provisioner=ExplicitModelProvisioner(model_path) if model_path else None,
+            network=None,
         )
-        print(response["message"]["content"])
-
-        sentences = queue_message(response["message"]["content"])
-
-        i = 0
-        while i < len(sentences):
-            m = sentences[i]
-            generate_speech(m, i, sentences)
-            i += 1
-            if is_stop:
-                break
-
-        is_talking = False
+    values = dict(config or {})
+    values.update(model=model, model_path=model_path)
+    return ConversationOrchestrator(adapters=adapters, config=values)
 
 
-def generate_speech(text, i, sentences):
-    global is_talking
-    global pr
-    tts = gTTS(text, slow=False)
-    tts.save(speech_dir + "speech" + str(i) + ".mp3")
-    if not is_talking:
-        if i == 0:
-            # Create a Process object to run the custom_function with a parameter
-            process = multiprocessing.Process(target=speak, args=(len(sentences),))
-            process.start()  # Start the process
+@traced
+def main(argv: list[str] | None = None, *, runtime_factory: Any = build_runtime,
+         stop_event: threading.Event | None = None) -> int:
+    parser = _build_parser()
+    args = parser.parse_args(argv)
+    _configure_logging(args.verbose)
+    _cli_event("startup", operation="cli_startup")
+    _validate_dependencies()
+    try:
+        runtime = runtime_factory(model=args.model, model_path=args.model_path)
+    except Exception as exc:
+        _cli_event("error", level=logging.ERROR, operation="runtime_factory", exc=exc,
+                   remediation="Check local runtime dependencies and configuration, then retry.")
+        raise
+    _cli_event("lifecycle", operation="runtime_created", runtime=runtime)
+    if args.download_model:
+        if not args.model_path:
+            parser.error("--download-model requires --model-path; provisioning is explicit and local")
+        try:
+            result = runtime.provision_model(consent=True)
+        except Exception as exc:
+            _cli_event("error", level=logging.ERROR, operation="provision", runtime=runtime,
+                       exc=exc, remediation="Verify the local model artifact and retry provisioning.")
+            raise
+        if result.state == "ERROR_RECOVERABLE":
+            _cli_event("error", level=logging.ERROR, operation="provision", runtime=runtime,
+                       exc=RuntimeError("model provisioning failed"),
+                       remediation="Verify the local model artifact and retry provisioning.")
+            return 1
+    if stop_event is None:
+        stop_event = threading.Event()
+    shutdown_failed: list[BaseException] = []
 
-        else:
-            speak(sentences)
-
-        is_talking = True
-
-
-def speak(num_sentences):
-    global is_stop
-    time.sleep(1)
-
-    for i in range(num_sentences):
-        command = [
-            "mplayer",
-            "-af",
-            "scaletempo",
-            "-speed",
-            "1.3",
-            f"speeches/speech{i}.mp3",
-        ]
-        subprocess.run(command)
-        if is_stop:
-            break
+    @traced
+    def stop(signum: int, frame: Any) -> None:
+        if stop_event.is_set():
+            return
+        _cli_event("shutdown", operation="shutdown", runtime=runtime)
+        try:
+            runtime.shutdown()
+        except Exception as exc:
+            shutdown_failed.append(exc)
+            _cli_event("error", level=logging.ERROR, operation="shutdown", runtime=runtime,
+                       exc=exc, remediation="Inspect adapter shutdown support and retry.")
+            raise
+        finally:
+            stop_event.set()
+    signal.signal(signal.SIGINT, stop)
+    signal.signal(signal.SIGTERM, stop)
+    _cli_event("lifecycle", operation="conversation_start", runtime=runtime)
+    try:
+        runtime.run_conversation(stop_event=stop_event)
+    except KeyboardInterrupt:
+        stop_event.set()
+        _cli_event("shutdown", operation="shutdown", runtime=runtime)
+        return 0
+    except Exception as exc:
+        if not shutdown_failed or shutdown_failed[-1] is not exc:
+            _cli_event("error", level=logging.ERROR, operation="run_conversation", runtime=runtime,
+                       exc=exc, remediation="Inspect the local adapters and retry the conversation.")
+        raise
+    if shutdown_failed:
+        return 1
+    return 0
 
 
 if __name__ == "__main__":
-    # Create a list of all files in the speech dir
-    files = [f for f in os.listdir(speech_dir) if "speech" in f]
-
-    # Iterate over the list of files and delete each one
-    for file in files:
-        file_path = os.path.join(speech_dir, file)
-        if os.path.isfile(file_path):
-            os.remove(file_path)
-
-    while True:
-        command = listen_for_command()
-        if command and command.lower() == "exit":
-            print("Exiting...")
-            break
-        elif command and (
-            "end now" in command
-            or "end statement" in command
-            or "stop now" in command
-            or "shut up" in command
-            or "shutup" in command
-            or "terminate now" in command
-        ):
-            print(pr)
-            for p in pr:
-                try:
-                    # # Terminate the process using its PID
-                    # os.kill(p, signal.SIGTERM)
-                    kill_child_processes(p.pid, signal.SIGTERM)
-
-                    # p.terminate()
-                    print("Processes killed...")
-                    print("Cancelling current response...")
-                except:
-                    print("process killing failed...")
-            os.kill(p.pid, signal.SIGTERM)
-            pr = []
-
-        elif command:
-            # Create a Process object to run the custom_function with a parameter
-            process = multiprocessing.Process(target=process_command, args=(command,))
-            process.start()  # Start the process
-            # Get the PID of the process
-            print(pr)
-            pr.append(process)
-            print(pr)
-            # # process.join()   # Wait for the process to complete (optional)
-            # process_command(command)
+    try:
+        raise SystemExit(main())
+    except KeyboardInterrupt:
+        raise SystemExit(0)
+    except Exception:
+        # ``main`` remains an injectable/testable boundary; the executable CLI
+        # converts unexpected failures into one deterministic nonzero status.
+        raise SystemExit(1)

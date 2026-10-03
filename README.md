@@ -1,161 +1,170 @@
-### Currently support Linux for now
+# Voice Command AI Assistant
 
-# Voice Command AI Assistant using Ollama LLMs
+Local-first voice-assistant runtime for macOS. Microphone capture, Whisper
+transcription, conversation state, and speech playback are local. Ollama is
+used only through its localhost API for language-model responses.
 
-This project is a voice-activated AI assistant that listens to voice commands, processes them using a large language model, and responds with synthesized speech. The AI assistant can handle natural language queries and generate helpful responses in real time. It includes the ability to interrupt and stop ongoing responses, as well as adjustable speech playback speed.
+## Architecture
 
-## Features
-- **Voice Recognition**: Listens for voice commands using Google Speech Recognition.
-- **AI-Powered Responses**: Uses a local instance of the LLaMA model to generate responses based on the user's queries.
-- **Speech Synthesis**: Converts the AI response to speech using Google Text-to-Speech (gTTS).
-- **Real-Time Interaction**: Responds to commands as they are given, with the ability to cancel or stop ongoing responses.
-- **Multi-process handling**: Commands are processed in parallel with the help of Python’s `multiprocessing` module.
+```mermaid
+flowchart LR
+    Mic[macOS AVFoundation + FFmpeg capture] --> Orch[ConversationOrchestrator<br/>state, cancellation, bounded memory]
+    Orch --> Whisper[Local MLX Whisper]
+    Whisper --> Orch
+    Orch --> Ollama[localhost Ollama streaming<br/>configured model: llama3.2]
+    Ollama --> Buffer[Clause buffer]
+    Buffer --> Say[macOS /usr/bin/say]
+    Say --> Audio[Local audio output]
+    Config[Explicit model provisioning/configuration<br/>--model-path + --download-model] --> Whisper
+    Log[Structured Python logging] -. lifecycle/errors only .-> Orch
+```
+
+The runtime uses a generation-based cancellation token to reject stale model
+and audio output after a barge-in. Conversation context is bounded by turn,
+token, and byte limits. A clause buffer is the streaming boundary between
+Ollama chunks and speech playback; applications embedding the orchestrator
+should flush it at natural clause boundaries.
+
+The token budget is deterministic and tokenizer-independent: each context
+message costs `ceil(len(text) / 4)` tokens (Python character length), with the
+oldest messages evicted until the configured budget is met. UTF-8 byte size is
+enforced separately by `max_bytes`; this estimate is intentionally a bound for
+memory management, not a claim about any model's tokenizer.
+
+## Happy flow and interruption
+
+```mermaid
+flowchart TD
+    Start([Start]) --> Ready[Check microphone permission and local model]
+    Ready --> Listen[Listen continuously]
+    Listen --> Capture[Capture audio]
+    Capture --> Transcribe[Transcribe locally with MLX Whisper]
+    Transcribe --> Prompt[Add accepted turn to bounded context]
+    Prompt --> Stream[Stream response from localhost Ollama]
+    Stream --> Clause[Buffer complete clauses]
+    Clause --> Speak[Speak with /usr/bin/say]
+    Speak --> Listen
+    Speak -. natural barge-in .-> Cancel[Cancel active turn and stop playback]
+    Cancel --> Reject[Reject stale generation output]
+    Reject --> Listen
+```
 
 ## Prerequisites
-Before running the project, ensure you have the following installed on your system:
-- Python 3.8 or higher
-- Required Python packages (listed in the requirements section below)
-- [Google Speech Recognition API](https://pypi.org/project/SpeechRecognition/)
-- [gTTS (Google Text-to-Speech)](https://pypi.org/project/gTTS/)
-- [psutil](https://pypi.org/project/psutil/)
-- [mplayer](http://www.mplayerhq.hu/) (for speech playback)
 
-## Installation
+- macOS with microphone permission available to the terminal/application.
+- Python 3.11 or newer.
+- FFmpeg with AVFoundation input support (`ffmpeg -devices`).
+- Ollama installed and running locally when language-model responses are used.
+- A local MLX Whisper model artifact. Model files are not downloaded silently.
 
-1. Clone this repository:
-   ```bash
-   git clone https://github.com/mauricechesteraguda/voice-command-ai-assistant.git
-   cd voice-command-ai-assistant
-    ```
+The native player is `/usr/bin/say`; the runtime uses macOS audio primitives
+and does not require a hosted speech service or a separate media player.
 
+## Install
 
-2. Install the required Python packages:
+```bash
+git clone https://github.com/mauricechesteraguda/voice-command-ai-assistant.git
+cd voice-command-ai-assistant
+python3 -m venv .venv
+source .venv/bin/activate
+python -m pip install --upgrade pip
+python -m pip install -r requirements.txt
+python -m pip install mlx-whisper
+```
 
-    ```bash
-    pip install -r requirements.txt
-    ```
-    
-3. Ensure that mplayer is installed on your system. For Linux, you can install it with:
-    ```bash
-    sudo apt-get install mplayer
-    ```
+Install the macOS services separately, using your normal trusted installers.
+For example, with Homebrew:
 
-4. Set up the ollama client to run LLaMA locally. You can find more about the installation here: https://ollama.com/.
+```bash
+brew install ffmpeg ollama
+```
 
+## Models and configuration
 
-0. Install ollama
+The default Ollama model is `llama3.2`. Start Ollama and provision that model
+explicitly:
 
-`curl -fsSL https://ollama.com/install.sh | sh`
+```bash
+ollama serve
+ollama pull llama3.2
+```
 
-`ollama run llama2:7b`
+Whisper provisioning is also explicit. Place an MLX Whisper artifact at a
+local path, then ask the CLI to verify/provision it with consent:
 
-1. Make sure to install mplayer
+```bash
+python assistant.py --model-path "$HOME/Models/whisper-base.en" --download-model
+```
 
-`sudo apt install mplayer`
+`--download-model` does not perform an implicit download: the current
+provisioner checks that the supplied local artifact exists. Without
+`--model-path`, the CLI refuses the provisioning command. Use `--model` to
+select a model already available in Ollama:
 
-2. Install python 3.11
+```bash
+python assistant.py --model llama3.2 --model-path "$HOME/Models/whisper-base.en"
+```
 
-3. Install virtualenv
+## Run
 
-4. create a virtual environment
+With the virtual environment active, Ollama running, and a local Whisper
+artifact configured:
 
-`virtualenv -p python3 .venv`
+```bash
+python assistant.py --model llama3.2 --model-path "$HOME/Models/whisper-base.en"
+```
 
-5. Execute this to enable the virtual environment
+The command enters the continuous capture/transcribe/stream/speak loop. The
+capture monitor remains active during generation and playback, allowing a
+barge-in to cancel and reap provider/player work and invalidate stale output.
 
-`source .venv/bin/activate`
+Use `--verbose` for more structured runtime diagnostics. Stop the process with
+`Ctrl-C`; SIGINT and SIGTERM perform runtime shutdown and cancel active work.
 
-6. Install the dependencies
+## Privacy and logging
 
-`pip install -r requirements.txt`
+Audio and transcription stay local by default. The only model service used by
+the runtime is Ollama on `127.0.0.1`/`localhost`. Runtime logging uses Python's
+structured logging for lifecycle, state, turn, external-call, cancellation, and
+error events; it does not include audio, transcript, or model-response payloads.
+Review
+your application logging configuration before enabling additional handlers.
 
-7. Run the app
+There are no silent model downloads. Model files must be supplied locally and
+provisioning requires the explicit `--download-model` consent flag.
 
-`python assistant.py`
+## Acoustic limitation
 
+Playback is not full acoustic echo cancellation. Capture filtering suppresses
+frames while playback is active, but room echo can still be transcribed on
+some microphones. A headset is recommended, especially for barge-in testing.
 
-Usage
+## Troubleshooting
 
-    Run the main Python file:
+- **Microphone permission pending:** allow microphone access for the terminal
+  or Python host in macOS System Settings, then restart the command.
+- **Audio device unavailable:** verify `ffmpeg -devices` lists `avfoundation`
+  and check the configured input device.
+- **Whisper model missing:** pass `--model-path` to an existing local MLX
+  Whisper artifact; the runtime will not fetch one for you.
+- **Ollama unavailable:** start `ollama serve` and verify the configured model
+  with `ollama list`.
+- **Playback unavailable:** confirm that `/usr/bin/say` is present and that
+  macOS audio output is available.
+- **Stale or interrupted speech:** barge-in cancels the active generation;
+  stale output is intentionally discarded. Retry the turn if needed.
 
-    bash
+## Tests
 
-python assistant.py
+The deterministic suite contains 41 runtime contract tests and makes no
+network, microphone, model, or speech calls:
 
-The application will start listening for voice commands. Speak your command into your microphone. Example commands:
+```bash
+source .venv/bin/activate
+python -m pytest -x -q
+python -m pytest -q
+```
 
-    "What's the weather today?"
-    "Explain artificial intelligence."
-    "Stop now" (to stop the assistant from talking).
+## License
 
-To exit the application, simply say:
-
-bash
-
-    exit
-
-How It Works
-
-    The assistant listens for commands through the microphone using the speech_recognition library.
-    Once a command is captured, it sends the query to the LLaMA model via the ollama client.
-    The assistant converts the AI-generated response into speech using gTTS.
-    Speech is played back using mplayer at an increased speed (adjustable via the tempo_ratio).
-
-Cancelling Responses
-
-You can interrupt the assistant while it is speaking by saying commands like:
-
-    "Stop now"
-    "Shut up"
-    "End now"
-    "Terminate now"
-
-The assistant will stop speaking and cancel any further responses.
-Project Structure
-
-plaintext
-
-.
-├── app.py                 # Main Python script for the assistant
-
-├── README.md              # Project documentation
-
-├── requirements.txt       # Python dependencies
-
-└── speeches/              # Directory where generated speech files are stored
-
-
-Dependencies
-
-    Google Speech Recognition
-    gTTS
-    psutil
-    mplayer
-    Ollama Client (For LLaMA model inference)
-
-You can install these dependencies using the following command:
-
-bash
-
-pip install -r requirements.txt
-
-Acknowledgments
-
-    Google Speech Recognition for the speech-to-text functionality.
-    Google Text-to-Speech (gTTS) for converting text responses to audio.
-    LLaMA AI Model for generating intelligent responses.
-
-License
-
-This project is licensed under the GNU Affero General Public License v3.0 (AGPL-3.0) License. See the LICENSE file for details.
-
-## Contact
-
-For any questions or inquiries, please reach out to https://www.linkedin.com/in/maurice-chester-aguda-09b93981/.
-
-## Support
-
-If you find this project helpful and would like to support its ongoing development, consider buying me a coffee! Your support helps me keep working on this project and developing more features.
-
-[![Buy Me a Coffee](https://www.buymeacoffee.com/assets/img/custom_images/yellow_img.png)](https://www.buymeacoffee.com/mauriceague)
-
+This project is licensed under the [MIT License](LICENSE).

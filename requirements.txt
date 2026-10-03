@@ -1,4 +1,4 @@
-SpeechRecognition
-ollama
-gTTS
-psutil
+# implementation-10032026-Maurice
+# Optional runtime integrations are installed by the macOS setup command.
+# The testable core intentionally has no import-time third-party dependency.
+ollama>=0.3

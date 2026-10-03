@@ -1,3 +1,5 @@
 .venv
 .vscode
 speech.mp3
+.trailmap/
+.serena/
