@@ -1,0 +1,4 @@
+# Direct runtime lock. Keep this file committed and update deliberately.
+ollama==0.3.3
+faster-whisper==1.0.3; platform_system == "Linux"
+piper-tts==1.2.0; platform_system == "Linux"

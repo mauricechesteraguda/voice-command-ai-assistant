@@ -1,0 +1,90 @@
+# implementation-10032026-Maurice
+services:
+  assistant:
+    build: .
+    user: "${UID:-10001}:${GID:-10001}"
+    group_add: ["${AUDIO_GID:-29}"]
+    read_only: true
+    cap_drop: [ALL]
+    security_opt: [no-new-privileges:true]
+    tmpfs: [/tmp]
+    restart: unless-stopped
+    mem_limit: 1g
+    cpus: 2.0
+    depends_on:
+      ollama: {condition: service_healthy}
+    environment:
+      OLLAMA_URL: http://ollama:11434
+      PULSE_SERVER: unix:/run/pulse/native
+      PULSE_COOKIE: /run/pulse/cookie
+      PULSE_SOURCE: "${PULSE_SOURCE:-default}"
+      HOST_UID: "${HOST_UID:-${UID:-10001}}"
+      HOST_GID: "${HOST_GID:-${GID:-10001}}"
+      AUDIO_GID: "${AUDIO_GID:-29}"
+      WHISPER_MODEL_PATH: /models/whisper
+      PIPER_MODEL_PATH: /models/piper
+      OLLAMA_MODEL: "${OLLAMA_MODEL:-llama3.2}"
+    volumes:
+      - whisper-models:/models/whisper:ro
+      - piper-models:/models/piper:ro
+      - ${PULSE_SOCKET:-/run/user/1000/pulse/native}:/run/pulse/native:ro
+      - ${PULSE_COOKIE:-/run/user/1000/pulse/cookie}:/run/pulse/cookie:ro
+      - /dev/snd:/dev/snd
+    networks: [private]
+    healthcheck:
+      test: [CMD-SHELL, "test -S /run/pulse/native && test -r /run/pulse/cookie && command -v ffmpeg && command -v paplay && command -v piper && find /models/whisper -type f -print -quit | grep -q . && find /models/piper -type f -print -quit | grep -q . && python -c 'from linux_runtime import validate_model_artifact as v; v(\"/models/whisper\"); v(\"/models/piper\")'"]
+      interval: 30s
+      timeout: 5s
+      retries: 3
+  ollama:
+    image: ollama/ollama:0.3.12
+    restart: unless-stopped
+    read_only: true
+    cap_drop: [ALL]
+    security_opt: [no-new-privileges:true]
+    tmpfs: [/tmp]
+    mem_limit: 4g
+    cpus: 4.0
+    volumes: [ollama-models:/root/.ollama]
+    networks: [private]
+    environment:
+      OLLAMA_MODEL: "${OLLAMA_MODEL:-llama3.2}"
+    healthcheck:
+      test: [CMD-SHELL, "ollama list | awk 'NR > 1 {print $1}' | grep -Fx \"$${OLLAMA_MODEL}\""]
+      interval: 30s
+      timeout: 10s
+      retries: 5
+    expose: [11434]
+  provision:
+    build: .
+    profiles: [provision]
+    user: "${UID:-10001}:${GID:-10001}"
+    group_add: ["${AUDIO_GID:-29}"]
+    read_only: true
+    cap_drop: [ALL]
+    security_opt: [no-new-privileges:true]
+    tmpfs: [/tmp]
+    mem_limit: 1g
+    cpus: 2.0
+    restart: "no"
+    depends_on:
+      ollama: {condition: service_healthy}
+    environment:
+      PULSE_SERVER: unix:/run/pulse/native
+      PULSE_COOKIE: /run/pulse/cookie
+      OLLAMA_URL: http://ollama:11434
+      OLLAMA_MODEL: "${OLLAMA_MODEL:-llama3.2}"
+    volumes:
+      - whisper-models:/models/whisper
+      - piper-models:/models/piper
+      - ${PULSE_SOCKET:-/run/user/1000/pulse/native}:/run/pulse/native:ro
+      - ${PULSE_COOKIE:-/run/user/1000/pulse/cookie}:/run/pulse/cookie:ro
+    command: [python, provision.py, --runtime, linux_runtime.provision, --consent, --whisper, /models/whisper, --piper, /models/piper, --ollama-model, "${OLLAMA_MODEL:-llama3.2}", --retry-attempts, "${OLLAMA_RETRY_ATTEMPTS:-3}", --retry-backoff, "${OLLAMA_RETRY_BACKOFF:-1.0}"]
+    networks: [private]
+volumes:
+  whisper-models:
+  piper-models:
+  ollama-models:
+networks:
+  private:
+    internal: true

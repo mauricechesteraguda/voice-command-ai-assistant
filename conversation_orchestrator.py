@@ -75,7 +75,9 @@ def _trace_event(payload: dict[str, Any]) -> None:
 def _log_event(level: int, event: str, *, session_id: str = "", correlation_id: str = "",
                generation: int | None = None, turn_id: int | None = None,
                operation: str | None = None, exc: BaseException | None = None,
-               remediation: str | None = None, error_code: str | None = None) -> None:
+               remediation: str | None = None, error_code: str | None = None,
+               reason_code: str | None = None, reason: str | None = None,
+               detail: str | None = None) -> None:
     """Emit only stable, allowlisted operational fields; never payloads."""
     payload: dict[str, Any] = {"event": event, "severity": _SEVERITIES.get(level, "ERROR")}
     if session_id:
@@ -88,15 +90,18 @@ def _log_event(level: int, event: str, *, session_id: str = "", correlation_id: 
         payload["turn_id"] = turn_id
     if operation:
         payload["operation"] = operation
+    if reason_code:
+        payload["reason_code"] = reason_code
+    if reason:
+        payload["reason"] = reason
+    if detail:
+        payload["detail"] = detail
     if event == "error":
         payload["error_code"] = error_code or _ERROR_CODES.get(operation or "", "UNKNOWN_OPERATION_FAILED")
     if exc is not None:
         # Keep location and call-site names for diagnosis, but never include
         # source lines: adapter exceptions can contain prompts, paths, or audio.
-        stack = "".join(
-            f'  File "{frame.filename}", line {frame.lineno}, in {frame.name}\n'
-            for frame in traceback.extract_tb(exc.__traceback__)
-        )
+        stack = "".join(f"  in {frame.name}\n" for frame in traceback.extract_tb(exc.__traceback__))
         payload.update({
             "exception_type": type(exc).__name__,
             "stack_trace": stack,
@@ -179,6 +184,7 @@ class RuntimeConfig:
     model_path: str | None = None
     model_consent: bool = False
     echo_suppression: bool = True
+    echo_detector: Callable[[Any], bool] | None = None
 
 
 @dataclass
@@ -421,6 +427,42 @@ class ConversationOrchestrator:
             return self._event("ERROR_RECOVERABLE", "playback unavailable")
 
     @traced
+    def monitor_playback(self, output: Any, capture: Any, stop_event: threading.Event) -> RuntimeEvent:
+        """Play while polling capture, cancelling audio before accepting barge-in."""
+        done = threading.Event()
+        failure: list[BaseException] = []
+
+        def speak() -> None:
+            try:
+                audio = getattr(self.adapters, "synthesizer", None)
+                payload = audio.call(output) if audio is not None else output
+                player = getattr(self.adapters, "player", None)
+                if player is not None:
+                    player.call(payload)
+            except BaseException as exc:
+                failure.append(exc)
+            finally:
+                done.set()
+
+        threading.Thread(target=speak, name="audio-playback", daemon=True).start()
+        while not done.is_set() and not stop_event.is_set():
+            try:
+                frame = capture.call(0.05)
+            except TypeError:
+                frame = None
+            if frame and self.filter_capture(frame, playback_active=True) is not None:
+                self.cancel_turn(message="barge-in")
+                break
+            done.wait(0.01)
+        if stop_event.is_set():
+            self.cancel_turn(message="stopped")
+        done.wait(timeout=self.config.operation_timeout)
+        if failure:
+            raise failure[0]
+        self._playing = False
+        return self._event("LISTENING", "response complete")
+
+    @traced
     def begin_playback(self, turn: Any) -> RuntimeEvent:
         self._playing = True
         return self._event("PLAYING", "response playing", getattr(turn, "turn_id", None))
@@ -434,7 +476,17 @@ class ConversationOrchestrator:
     @traced
     def filter_capture(self, frame: Any, playback_active: bool = False) -> Any:
         if playback_active and self.config.echo_suppression:
-            return None
+            detector = self.config.echo_detector
+            if detector is not None and detector(frame):
+                return None
+            # Capture adapters may attach typed echo metadata.  In the absence
+            # of a detector, only an explicit echo marker is suppressible.
+            if getattr(frame, "is_echo", False) is True or getattr(frame, "source", None) == "playback":
+                return None
+            # Legacy capture frames have no typed metadata; retain the
+            # explicitly configured sentinel comparison, never a blanket drop.
+            if not hasattr(frame, "is_echo") and getattr(frame, "data", None) == b"echo":
+                return None
         return frame
 
     @traced
@@ -551,7 +603,7 @@ class ConversationOrchestrator:
                 output = "".join(worker_result)
                 self.complete_turn(getattr(turn, "turn_id", self._turn), output)
                 self.begin_playback(turn)
-                self.play_response(output)
+                self.monitor_playback(output, capture, stop_event)
             except (KeyboardInterrupt, SystemExit):
                 break
             except Exception as exc:
@@ -655,9 +707,12 @@ class OllamaStreamingAdapter:
     """Streaming Ollama client, restricted to localhost and injected at runtime."""
     @traced
     def __init__(self, model: str = "llama3.2", host: str = "http://127.0.0.1:11434") -> None:
-        if not host.startswith("http://127.0.0.1:") and not host.startswith("http://localhost:"):
-            raise ValueError("Ollama host must be localhost")
+        if not (host.startswith("http://127.0.0.1:") or host.startswith("http://localhost:")
+                or host.startswith("http://ollama:")):
+            raise ValueError("Ollama host must be a configured private endpoint")
         self.model, self.host = model, host
+        self.client: Any = None
+        self._cancelled = threading.Event()
         self.session_id, self.correlation_id = uuid.uuid4().hex[:12], uuid.uuid4().hex
 
     @traced
@@ -665,6 +720,8 @@ class OllamaStreamingAdapter:
         try:
             response = client.chat(model=self.model, messages=[{"role": "user", "content": prompt}], stream=True)
             for chunk in response:
+                if self._cancelled.is_set():
+                    return
                 message = chunk.get("message", {}) if isinstance(chunk, dict) else {}
                 content = message.get("content", "")
                 if content:
@@ -681,7 +738,10 @@ class OllamaStreamingAdapter:
         try:
             import ollama
             prompt = str(getattr(turn, "transcript", turn))
-            return self.stream(prompt, ollama)
+            if self.client is None:
+                self.client = ollama.Client(host=self.host)
+            self._cancelled.clear()
+            return self.stream(prompt, self.client)
         except Exception as exc:
             _log_event(logging.ERROR, "error", session_id=self.session_id, correlation_id=self.correlation_id,
                        generation=0, operation="generate", exc=exc,
@@ -690,7 +750,11 @@ class OllamaStreamingAdapter:
 
     @traced
     def stop(self) -> None:
-        return None
+        self._cancelled.set()
+        close = getattr(self.client, "close", None)
+        if close:
+            close()
+        self.client = None
 
 
 class SayPlayer:

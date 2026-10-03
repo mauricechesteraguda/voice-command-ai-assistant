@@ -1,0 +1,11 @@
+# implementation-10032026-Maurice
+services:
+  ollama:
+    # Requires NVIDIA Container Toolkit; CPU compose remains the default.
+    deploy:
+      resources:
+        reservations:
+          devices:
+            - driver: nvidia
+              count: all
+              capabilities: [gpu]

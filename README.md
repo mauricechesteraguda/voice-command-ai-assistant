@@ -1,8 +1,49 @@
 # Voice Command AI Assistant
 
-Local-first voice-assistant runtime for macOS. Microphone capture, Whisper
+Local-first voice-assistant runtime for macOS and Linux. Microphone capture, Whisper
 transcription, conversation state, and speech playback are local. Ollama is
-used only through its localhost API for language-model responses.
+used only through its private API for language-model responses.
+
+## Linux and container deployment
+
+Linux uses FFmpeg Pulse input (including PipeWire's Pulse socket), local
+`faster-whisper`, Piper WAV synthesis, `paplay`, and private Ollama. The CPU
+Compose profile is the default; NVIDIA is an explicit override requiring the
+NVIDIA Container Toolkit. Normal startup never downloads models.
+
+```mermaid
+flowchart LR
+  Host[Linux Pulse / PipeWire socket + /dev/snd] --> Runtime[Compose assistant]
+  Runtime --> STT[MLX Whisper / faster-whisper local files]
+  Runtime --> LLM[Private Ollama]
+  LLM --> TTS[macOS say / Linux Piper + paplay]
+  Consent[Explicit provision CLI] --> STT
+  Consent --> TTS
+  Consent --> LLM
+```
+
+Happy flow: validate dependencies → explicitly provision Whisper, Piper, and
+Ollama → readiness check → capture → local transcription → private generation
+→ clause playback → cancellation-safe stop. Provisioning validates
+completeness/checksums and preserves the prior active artifact on partial
+failure.
+
+```bash
+cp .env.example .env
+docker compose config --quiet
+docker compose build assistant
+docker compose up assistant ollama
+docker compose --profile provision run --rm provision
+docker compose -f docker-compose.yml -f docker-compose.nvidia.yml config --quiet
+```
+
+Set `PULSE_SOCKET`, `PULSE_COOKIE`, `HOST_UID`, `HOST_GID`, and `AUDIO_GID` for
+host audio access. The container always uses `/run/pulse/native` and
+`/run/pulse/cookie`, regardless of host UID. The provision profile is the only
+model-changing command and requires `--consent` internally; it validates
+Whisper and Piper locally, then checks the selected Ollama model through the
+private HTTP API.
+Ollama has no public host port; Compose routes it as `http://ollama:11434`.
 
 ## Architecture
 
@@ -11,7 +52,7 @@ flowchart LR
     Mic[macOS AVFoundation + FFmpeg capture] --> Orch[ConversationOrchestrator<br/>state, cancellation, bounded memory]
     Orch --> Whisper[Local MLX Whisper]
     Whisper --> Orch
-    Orch --> Ollama[localhost Ollama streaming<br/>configured model: llama3.2]
+    Orch --> Ollama[Private Ollama HTTP streaming<br/>configured model: llama3.2]
     Ollama --> Buffer[Clause buffer]
     Buffer --> Say[macOS /usr/bin/say]
     Say --> Audio[Local audio output]
@@ -40,7 +81,7 @@ flowchart TD
     Listen --> Capture[Capture audio]
     Capture --> Transcribe[Transcribe locally with MLX Whisper]
     Transcribe --> Prompt[Add accepted turn to bounded context]
-    Prompt --> Stream[Stream response from localhost Ollama]
+    Prompt --> Stream[Stream response from private Ollama]
     Stream --> Clause[Buffer complete clauses]
     Clause --> Speak[Speak with /usr/bin/say]
     Speak --> Listen
@@ -51,8 +92,8 @@ flowchart TD
 
 ## Prerequisites
 
-- macOS with microphone permission available to the terminal/application.
-- Python 3.11 or newer.
+- macOS with microphone permission, or Linux with a readable Pulse/PipeWire socket.
+- Python 3.10 or newer.
 - FFmpeg with AVFoundation input support (`ffmpeg -devices`).
 - Ollama installed and running locally when language-model responses are used.
 - A local MLX Whisper model artifact. Model files are not downloaded silently.
@@ -124,7 +165,7 @@ Use `--verbose` for more structured runtime diagnostics. Stop the process with
 ## Privacy and logging
 
 Audio and transcription stay local by default. The only model service used by
-the runtime is Ollama on `127.0.0.1`/`localhost`. Runtime logging uses Python's
+the runtime is Ollama on the configured private HTTP URL. Runtime logging uses Python's
 structured logging for lifecycle, state, turn, external-call, cancellation, and
 error events; it does not include audio, transcript, or model-response payloads.
 Review
@@ -136,8 +177,9 @@ provisioning requires the explicit `--download-model` consent flag.
 ## Acoustic limitation
 
 Playback is not full acoustic echo cancellation. Capture filtering suppresses
-frames while playback is active, but room echo can still be transcribed on
-some microphones. A headset is recommended, especially for barge-in testing.
+only typed echo-marked frames (or an explicitly configured detector), while
+genuine speech remains eligible during playback. A headset is recommended,
+especially for barge-in testing.
 
 ## Troubleshooting
 
@@ -147,16 +189,22 @@ some microphones. A headset is recommended, especially for barge-in testing.
   and check the configured input device.
 - **Whisper model missing:** pass `--model-path` to an existing local MLX
   Whisper artifact; the runtime will not fetch one for you.
-- **Ollama unavailable:** start `ollama serve` and verify the configured model
-  with `ollama list`.
-- **Playback unavailable:** confirm that `/usr/bin/say` is present and that
-  macOS audio output is available.
+- **Ollama unavailable:** start the private Ollama service and verify readiness
+  with the provision profile.
+- **Playback unavailable (Linux):** confirm the Pulse/PipeWire socket and cookie
+  paths, `AUDIO_GID`, `paplay`, and `piper`; inspect `docker compose logs`.
+- **Offline recovery:** stop the stack, fix or replace the mounted artifacts,
+  then run `docker compose --profile provision run --rm provision --offline`.
+- **Rollback:** restore the previous model volume snapshot (or backup) and rerun
+  the provision command; activation keeps the prior complete set on failure.
+- **NVIDIA:** install NVIDIA Container Toolkit, then use
+  `docker compose -f docker-compose.yml -f docker-compose.nvidia.yml up`.
 - **Stale or interrupted speech:** barge-in cancels the active generation;
   stale output is intentionally discarded. Retry the turn if needed.
 
 ## Tests
 
-The deterministic suite contains 41 runtime contract tests and makes no
+The deterministic suite contains 81 runtime contract tests and makes no
 network, microphone, model, or speech calls:
 
 ```bash

@@ -9,6 +9,12 @@
   model provisioning, privacy/logging guidance, acoustic limitations,
   troubleshooting, and the 41-test commands.
 - Replaced the outdated platform and hosted speech-service guidance.
+- Added Linux Pulse/PipeWire, faster-whisper, Piper/paplay, private Ollama,
+  explicit multi-artifact provisioning, hardened CPU Compose, and optional
+  NVIDIA deployment validation.
+- Pinned the Linux image and Ollama image, locked Python dependencies, added
+  non-root audio-aware provisioning/readiness checks, and documented offline
+  recovery, rollback, and NVIDIA commands.
 - Added the standard MIT license with 2026 Maurice Aguda copyright notice and
   linked it from the README.
 

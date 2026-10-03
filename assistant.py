@@ -81,6 +81,9 @@ def _build_parser() -> argparse.ArgumentParser:
     parser.add_argument("--download-model", action="store_true", help="explicitly provision a configured model artifact")
     parser.add_argument("--model-path", help="existing local model artifact path")
     parser.add_argument("--model", default="llama3.2")
+    parser.add_argument("--ollama-url", default=None)
+    parser.add_argument("--pulse-source", default="default")
+    parser.add_argument("--offline", action="store_true")
     parser.add_argument("--verbose", action="store_true")
     return parser
 
@@ -96,12 +99,22 @@ def _validate_dependencies() -> None:
 
 @traced
 def build_runtime(*, model: str = "llama3.2", model_path: str | None = None,
-                  adapters: Any = None, config: dict[str, Any] | None = None) -> ConversationOrchestrator:
+                  adapters: Any = None, config: dict[str, Any] | None = None,
+                  platform: str | None = None) -> ConversationOrchestrator:
     """Compose production ports without opening hardware or downloading models.
 
     ``adapters`` is an explicit test seam.  Otherwise every port is local and
     lazy: construction does not touch AVFoundation, MLX, Ollama, or ``say``.
     """
+    selected_platform = platform or sys.platform
+    if selected_platform.startswith("linux"):
+        from linux_runtime import build_runtime as linux_factory
+        values = dict(config or {})
+        values.update(model=model, model_path=model_path)
+        client_map = adapters if isinstance(adapters, dict) else adapters.__dict__ if adapters is not None else None
+        return linux_factory(platform="linux", clients=client_map, config=values)
+    if selected_platform != "darwin":
+        raise ValueError("unsupported platform; supported platforms are Linux and macOS")
     if adapters is None:
         adapters = SimpleNamespace(
             audio_capture=FFmpegMicrophoneCapture(device=":0"),
@@ -126,7 +139,10 @@ def main(argv: list[str] | None = None, *, runtime_factory: Any = build_runtime,
     _cli_event("startup", operation="cli_startup")
     _validate_dependencies()
     try:
-        runtime = runtime_factory(model=args.model, model_path=args.model_path)
+        runtime = runtime_factory(model=args.model, model_path=args.model_path,
+                                  config={"ollama_url": args.ollama_url,
+                                          "pulse_source": args.pulse_source,
+                                          "offline": args.offline})
     except Exception as exc:
         _cli_event("error", level=logging.ERROR, operation="runtime_factory", exc=exc,
                    remediation="Check local runtime dependencies and configuration, then retry.")

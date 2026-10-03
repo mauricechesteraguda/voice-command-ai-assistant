@@ -1,4 +1,8 @@
 # implementation-10032026-Maurice
-# Optional runtime integrations are installed by the macOS setup command.
+# Optional runtime integrations are platform-gated; imports remain lazy so the
+# deterministic suite and normal startup never trigger model downloads.
 # The testable core intentionally has no import-time third-party dependency.
-ollama>=0.3
+-c requirements.lock
+ollama==0.3.3
+faster-whisper==1.0.3; platform_system == "Linux"
+piper-tts==1.2.0; platform_system == "Linux"
