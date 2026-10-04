@@ -75,6 +75,19 @@ def test_tc_devops_0040_runs_validation_tiers() -> None:
     workflow = _files_text(path)
     assert "terraform init" in workflow and "backend=false" not in workflow
     assert "terraform apply" in workflow and "id-token: write" in workflow
+    # Every supported provider has an explicit OIDC path; credentials are
+    # injected by protected repository/environment inputs, never hard-coded.
+    assert "aws-actions/configure-aws-credentials@" in workflow
+    assert "google-github-actions/auth@" in workflow
+    assert "azure/login@" in workflow
+    assert all(token in workflow for token in (
+        "backend-config=\"bucket=",
+        "backend-config=\"resource_group_name=",
+        "backend-config=\"storage_account_name=",
+    ))
+    assert "REQUIRED" not in workflow
+    assert "needs:" in workflow and "infrastructure-approval" in workflow
+    assert re.search(r"if:.*apply", workflow) and "tfplan" in workflow
 
 
 def test_tc_devops_0041_uses_least_privilege_ci_oidc() -> None:

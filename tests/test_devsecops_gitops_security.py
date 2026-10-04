@@ -2,6 +2,7 @@
 
 from pathlib import Path
 import re
+import subprocess
 
 
 ROOT = Path(__file__).parents[1]
@@ -48,6 +49,11 @@ def test_tc_devops_0021_reconciles_argo_app_of_apps() -> None:
     assert repo_urls and all("example.invalid" not in url for url in repo_urls)
     project = _text(ROOT / "argocd" / "project.yaml")
     assert repo_urls[0] in project, "Argo Project and Application must use the same repository"
+    assert "group: '*'" not in project and "kind: '*'" not in project
+    assert "namespaceResourceWhitelist" in project
+    assert re.search(r"namespaceResourceWhitelist:\s*\[(?![^\n]*(?:group:\s*['\"]?\*|kind:\s*['\"]?\*))", project)
+    assert all(namespace != "*" for namespace in re.findall(r"namespace:\s*([^,}\s]+)", project))
+    assert all(server == "https://kubernetes.default.svc" for server in re.findall(r"server:\s*([^,}\s]+)", project))
 
 
 def test_tc_devops_0022_gates_immutable_promotion() -> None:
@@ -56,6 +62,15 @@ def test_tc_devops_0022_gates_immutable_promotion() -> None:
     text = "\n".join(_text(item) for item in path.rglob("*") if item.is_file())
     assert "sha256:" in text and "digest" in text.lower()
     assert "image:" in text and "latest" not in text
+    workflow = _text(ROOT / ".github/workflows/promotion.yml")
+    assert all(marker in workflow.lower() for marker in ("health", "sync", "digest"))
+    assert "sha256:" in workflow and "image_digest" in workflow
+    assert "echo" not in workflow.lower()
+    assert (
+        "peter-evans/create-pull-request@" in workflow
+        or "gh pr create" in workflow
+        or "pulls" in workflow.lower() and "github.token" in workflow
+    )
 
 
 def test_tc_devops_0023_self_heals_drift() -> None:
@@ -90,6 +105,15 @@ def test_tc_devops_0028_uses_provider_workload_identity() -> None:
     text = "\n".join(_text(item) for item in path.rglob("*") if item.is_file())
     assert "repository" in text and "cosign" in text.lower()
     assert "https://github.com/" in text, "Cosign identity must be bound to the repository"
+    remote = subprocess.run(
+        ["git", "config", "--get", "remote.origin.url"], cwd=ROOT,
+        text=True, capture_output=True, check=False,
+    ).stdout.strip().removesuffix(".git")
+    assert remote and remote in text
+    cosign = _text(ROOT / "policies/cosign/verify-images.yaml")
+    assert remote in cosign
+    assert "example/" not in cosign and "example.invalid" not in cosign
+    assert "subject:" in cosign and "repository" in cosign
 
 
 def test_tc_devops_0029_enforces_workload_and_artifact_policy() -> None:

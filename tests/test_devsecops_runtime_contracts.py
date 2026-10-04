@@ -1,6 +1,7 @@
 """Externally observable platform contracts."""
 
 import ast
+import json
 import re
 from pathlib import Path
 
@@ -39,6 +40,48 @@ def test_tc_devops_0002_serves_versioned_configuration_api() -> None:
     tree = ast.parse(_source(path))
     assert any(isinstance(node, ast.Call) and getattr(node.func, "attr", "") == "FastAPI" for node in ast.walk(tree))
     assert "postgres" in _source(path).lower() or "repository" in _source(path).lower()
+
+    # The default deployment must not silently create process-local state or
+    # development signing/JWT secrets.  The injected repository seam remains
+    # usable for deterministic tests, while production requires its DSN.
+    app_source = _source(path)
+    assert "DATABASE_URL" in app_source
+    assert "connection_factory" in app_source
+    assert "token_urlsafe" not in app_source
+
+    from platform_api.app import ControlPlane, create_app
+    from platform_api.audit import AuditLog
+    from platform_api.auth import JWTAdapter
+    from platform_api.config import ConfigStore
+    from platform_api.repository import PostgresRepository
+
+    shared = PostgresRepository()
+    first = ControlPlane(
+        db=shared, jwt=JWTAdapter("jwt-test"),
+        config=ConfigStore("config-test", repository=shared),
+        audit=AuditLog(repository=shared),
+    )
+    first.config.publish({"flag": "default"}, version=1, cohort="default")
+    first.config.publish({"flag": "cohort"}, version=2, cohort="beta")
+    first.config.set_device_override("device-1", {"flag": "device"})
+    first.audit.append("admin", "config.publish", "success", {"version": 2})
+    shared.idempotency["request-1"] = {"version": 2, "signature": first.config.current.signature}
+
+    second = ControlPlane(
+        db=shared, jwt=JWTAdapter("jwt-test"),
+        config=ConfigStore("config-test", repository=shared),
+        audit=AuditLog(repository=shared),
+    )
+    first_app = create_app(first)
+    second_app = create_app(second)
+    assert first_app.state.control_plane is first
+    assert second_app.state.control_plane is second
+    assert second.config.current is not None
+    assert second.config.current.cohort == "beta"
+    assert second.config.for_device("device-1").values["flag"] == "device"
+    assert shared.idempotency["request-1"]["version"] == 2
+    assert any(event["action"] == "config.publish" for event in shared.audit_events)
+    assert "cohort" in app_source and "idempot" in app_source.lower()
 
 
 def test_tc_devops_0003_reports_safe_live_and_ready_health() -> None:
@@ -90,6 +133,29 @@ def test_tc_devops_0007_authenticates_admin_client() -> None:
     else:
         raise AssertionError("device and admin clients must have separate audiences")
     assert "cache" in text.lower() and "max" in text.lower(), "OIDC/JWKS cache must be bounded"
+    assert "payload[\"iss\"]" in text, "OIDC tokens must carry an exact issuer claim"
+    assert "payload.get(\"iss\", self.issuer)" not in text
+
+    # Missing issuer is not equivalent to the configured issuer.  Exercise the
+    # verification seam with a fake JWKS/transport and a signed token shape.
+    from platform_api.auth import OIDCAdapter, _b64
+    from cryptography.hazmat.primitives.asymmetric import padding, rsa
+    from cryptography.hazmat.primitives.hashes import SHA256
+    key = rsa.generate_private_key(public_exponent=65537, key_size=2048)
+    numbers = key.private_numbers().public_numbers
+    unsigned = {
+        "alg": "RS256", "typ": "JWT", "kid": "test",
+    }
+    payload = {"sub": "admin", "aud": "control-plane-admin", "exp": 2_000_000_000}
+    head = _b64(json.dumps(unsigned, separators=(",", ":")).encode())
+    body = _b64(json.dumps(payload, separators=(",", ":")).encode())
+    signature = key.sign(f"{head}.{body}".encode(), padding.PKCS1v15(), SHA256())
+    token = f"{head}.{body}.{_b64(signature)}"
+    jwks = {"keys": [{"kid": "test", "kty": "RSA", "n": _b64(numbers.n.to_bytes((numbers.n.bit_length() + 7) // 8, "big")), "e": _b64(numbers.e.to_bytes(3, "big"))}]}
+    transport = lambda url: {"issuer": "https://issuer.test", "jwks_uri": "https://issuer.test/keys"} if "well-known" in url else jwks
+    oidc = OIDCAdapter(transport, "https://issuer.test")
+    with pytest.raises(ValueError):
+        oidc.verify(token, audience="control-plane-admin")
 
 
 def test_tc_devops_0008_enforces_least_privilege_roles() -> None:
@@ -110,6 +176,15 @@ def test_tc_devops_0010_rejects_signature_replay_and_expiry() -> None:
     assert path.is_file(), "TC-DEVOPS-0010 requires signature, replay, expiry, and cache validation"
     text = path.read_text()
     assert all(token in text for token in ("signature", "replay", "expiry"))
+    edge = _source(ROOT / "edge_control_plane.py")
+    assert all(token in edge for token in ("pinned", "public", "verify"))
+    from edge_control_plane import Consent, EdgeControlPlane
+    client = EdgeControlPlane(
+        transport=lambda *_: {"version": 7, "values": {"danger": True}, "signature": "bogus"},
+        consent=Consent(privacy=True), offline=False,
+    )
+    assert client.fetch_config("device-1")["version"] == 0
+    assert client.fetch_config("device-1")["version"] == 0
 
 
 def test_tc_devops_0011_keeps_privacy_and_telemetry_consent_independent() -> None:
@@ -151,6 +226,13 @@ def test_tc_devops_0014_applies_reversible_postgres_migrations() -> None:
     path = ROOT / "migrations"
     assert path.is_dir(), "TC-DEVOPS-0014 requires versioned PostgreSQL migrations"
     assert any(path.iterdir())
+    migration_job = _source(ROOT / "helm/app/templates/migration-job.yaml")
+    assert "PreSync" in migration_job
+    assert "secretKeyRef" in migration_job or "envFrom" in migration_job
+    assert "DATABASE_URL" in migration_job
+    assert re.search(r"(?:migrate|migration)[-_ ]?(?:run|runner)", migration_job, re.IGNORECASE)
+    assert "echo" not in migration_job.lower()
+    assert any(flag in migration_job for flag in ("set -e", "--fail", "&&"))
 
 
 def test_tc_devops_0015_enforces_class_specific_retention() -> None:
