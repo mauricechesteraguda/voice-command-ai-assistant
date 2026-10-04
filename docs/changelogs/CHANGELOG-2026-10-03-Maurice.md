@@ -18,4 +18,8 @@
 - Added the standard MIT license with 2026 Maurice Aguda copyright notice and
   linked it from the README.
 
+- Added deterministic security wrappers, pinned CI validation/release/OIDC workflows,
+  Renovate configuration, kind health/rollback helpers, and multicloud operations
+  documentation with explicit unverified cloud pricing assumptions.
+
 Author Name: Aguda, Maurice

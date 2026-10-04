@@ -1,0 +1,6 @@
+cloud_verified: false
+status: planning-only
+profiles:
+  eks: {provider: aws, region: "placeholder", workload_identity: oidc}
+  gke: {provider: google, region: "placeholder", workload_identity: workload-identity}
+  aks: {provider: azure, region: "placeholder", workload_identity: federated}

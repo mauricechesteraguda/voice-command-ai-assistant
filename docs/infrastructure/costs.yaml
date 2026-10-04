@@ -1,0 +1,10 @@
+version: "2026-10-04"
+currency: USD/month
+cloud_verified: false
+assumptions: one small region, modest traffic, excludes egress/support
+profiles:
+  eks: {range: "110-190 + 20-100+ PostgreSQL", alert_monthly_usd: 200}
+  gke: {range: "50-160 + PostgreSQL", alert_monthly_usd: 200}
+  gke_autopilot: {range: "30-180 + PostgreSQL", alert_monthly_usd: 200}
+  aks: {range: "80-190 + PostgreSQL", alert_monthly_usd: 200}
+  secure_production: {range: "may exceed 200", alert_monthly_usd: 250}

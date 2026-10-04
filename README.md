@@ -1,5 +1,9 @@
 # Voice Command AI Assistant
 
+## Infrastructure status
+
+Multicloud GitOps operations are documented in [`infrastructure/README.md`](infrastructure/README.md). **Live environment: Not deployed**; the URL shown there is a placeholder.
+
 Local-first voice-assistant runtime for macOS and Linux. Microphone capture, Whisper
 transcription, conversation state, and speech playback are local. Ollama is
 used only through its private API for language-model responses.
