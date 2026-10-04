@@ -5,4 +5,6 @@ data:
   provider: "kind-local-or-cloud-provider-bound-service-account"
   repository: "https://github.com/mauricechesteraguda/voice-command-ai-assistant"
   cosign_identity: "https://github.com/mauricechesteraguda/voice-command-ai-assistant/.github/workflows/release.yml@refs/tags/*"
+  trusted_registry: "ghcr.io/mauricechesteraguda/voice-command-ai-assistant"
+  audit_budget: "0"
   rule: "Bind provider workload identity to least-privilege service accounts; do not mount static cloud keys."

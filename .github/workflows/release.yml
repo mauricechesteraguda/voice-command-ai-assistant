@@ -19,13 +19,17 @@ jobs:
           registry: ghcr.io
           username: ${{ github.actor }}
           password: ${{ secrets.GITHUB_TOKEN }}
-      - uses: docker/build-push-action@10e90e3645eae34f1e60eeb005ba3a3d33f178e8
+      - id: build
+        uses: docker/build-push-action@10e90e3645eae34f1e60eeb005ba3a3d33f178e8
         with:
           push: true
           platforms: linux/amd64,linux/arm64
           provenance: true
           sbom: true
           tags: ghcr.io/${{ github.repository }}:${{ github.ref_name }}
+      - uses: sigstore/cosign-installer@d7543c93d7e2a5a5b9c9c2f4d5c3b1a0e8f7d6c5
       - run: syft dir:. -o cyclonedx-json=sbom.json
-      - run: cosign sign --yes ghcr.io/${{ github.repository }}:${{ github.ref_name }}
-      - run: cosign attest --yes --predicate sbom.json --type cyclonedx ghcr.io/${{ github.repository }}:${{ github.ref_name }}
+      - name: Sign immutable image digest
+        run: cosign sign --yes "ghcr.io/${{ github.repository }}@${{ steps.build.outputs.digest }}"
+      - name: Attest SBOM to immutable image digest
+        run: cosign attest --yes --predicate sbom.json --type cyclonedx "ghcr.io/${{ github.repository }}@${{ steps.build.outputs.digest }}"

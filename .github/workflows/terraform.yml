@@ -3,33 +3,150 @@ on:
   workflow_dispatch:
     inputs:
       command:
-        description: plan or apply
+        description: plan or apply (apply requires the protected environment)
         required: true
         default: plan
+        type: choice
+        options: [plan, apply]
+      provider:
+        description: cloud profile to plan or apply
+        required: true
+        default: gcp
+        type: choice
+        options: [aws, gcp, azure]
 permissions:
   contents: read
   id-token: write
-# AWS_OIDC_PROVIDER_ARN is a protected repository variable containing the real
-# account-qualified provider ARN. The required shape is
+# AWS trust policy must pin this provider ARN and exact repository/workflow sub:
 # arn:aws:iam::123456789012:oidc-provider/token.actions.githubusercontent.com
-# (the numeric account above is syntax documentation, never a deployment value).
-# The IAM trust policy must StringEquals both token.actions.githubusercontent.com:aud
-# = sts.amazonaws.com and token.actions.githubusercontent.com:sub for this repository
-# and workflow; wildcard subjects are not permitted.
-env:
-  AWS_OIDC_PROVIDER_ARN: ${{ vars.AWS_OIDC_PROVIDER_ARN }}
+# Trust conditions use exact aud=sts.amazonaws.com and sub=repo:OWNER/REPOSITORY:ref.
 jobs:
-  terraform:
-    environment: infrastructure-approval
+  plan:
     timeout-minutes: 30
     runs-on: ubuntu-latest
+    strategy:
+      fail-fast: false
+      matrix:
+        provider: [aws, gcp, azure]
+    if: inputs.provider == matrix.provider
+    env:
+      TF_IN_AUTOMATION: "true"
+      TF_CLI_ARGS: "-lock-timeout=5m"
+      TF_ROOT: ${{ matrix.provider == 'aws' && 'terraform/profiles/eks' || matrix.provider == 'azure' && 'terraform/azure/profiles/aks' || 'terraform' }}
     steps:
       - uses: actions/checkout@11bd71901bbe5b1630ceea73d27597364c9af683
-      - uses: google-github-actions/auth@6b9c9e5f1a5b8f1d6c4b1f7b0d7f99b8d8f4f2c1
+      - name: Configure AWS OIDC
+        if: matrix.provider == 'aws'
+        uses: aws-actions/configure-aws-credentials@e3f7e5c5f2b8d6a4a4c7b1e5f0b3d0a4a1e0b8c7
+        with:
+          role-to-assume: ${{ secrets.AWS_TERRAFORM_ROLE_ARN }}
+          aws-region: ${{ vars.AWS_REGION }}
+          role-session-name: github-terraform-${{ github.run_id }}
+      - name: Configure GCP OIDC
+        if: matrix.provider == 'gcp'
+        uses: google-github-actions/auth@6b9c9e5f1a5b8f1d6c4b1f7b0d7f99b8d8f4f2c1
         with:
           workload_identity_provider: ${{ vars.GCP_WORKLOAD_IDENTITY_PROVIDER }}
           service_account: ${{ vars.GCP_TERRAFORM_SERVICE_ACCOUNT }}
-      - run: terraform -chdir=terraform init -backend-config="bucket=${{ vars.TF_STATE_BUCKET }}"
-      - run: terraform -chdir=terraform plan -out=tfplan
-      - if: inputs.command == 'apply'
-        run: terraform -chdir=terraform apply -auto-approve tfplan
+      - name: Configure Azure OIDC
+        if: matrix.provider == 'azure'
+        uses: azure/login@33f40d7d8e0f8f6b5c2e3d4f1a0b9c8d7e6f5a4b
+        with:
+          client-id: ${{ vars.AZURE_TERRAFORM_CLIENT_ID }}
+          tenant-id: ${{ vars.AZURE_TENANT_ID }}
+          subscription-id: ${{ vars.AZURE_SUBSCRIPTION_ID }}
+      - name: Initialize provider-native backend
+        shell: bash
+        run: |
+          set -euo pipefail
+          # terraform init is always provider-native and receives its location here.
+          printf '{"event":"terraform_init","provider":"%s"}\n' "$PROVIDER"
+          if [ "$PROVIDER" = aws ]; then
+            terraform -chdir="$TF_ROOT" init -lockfile=readonly \
+              -backend-config="bucket=${{ vars.AWS_TF_STATE_BUCKET }}" \
+              -backend-config="key=${{ vars.AWS_TF_STATE_KEY }}" \
+              -backend-config="region=${{ vars.AWS_REGION }}" \
+              -backend-config="dynamodb_table=${{ vars.AWS_TF_LOCK_TABLE }}"
+          elif [ "$PROVIDER" = gcp ]; then
+            terraform -chdir="$TF_ROOT" init -lockfile=readonly \
+              -backend-config="bucket=${{ vars.GCP_TF_STATE_BUCKET }}" \
+              -backend-config="prefix=${{ vars.GCP_TF_STATE_PREFIX }}"
+          else
+            terraform -chdir="$TF_ROOT" init -lockfile=readonly \
+              -backend-config="resource_group_name=${{ vars.AZURE_TF_STATE_RESOURCE_GROUP }}" \
+              -backend-config="storage_account_name=${{ vars.AZURE_TF_STATE_STORAGE_ACCOUNT }}" \
+              -backend-config="container_name=${{ vars.AZURE_TF_STATE_CONTAINER }}" \
+              -backend-config="key=${{ vars.AZURE_TF_STATE_KEY }}"
+          fi
+        env:
+          PROVIDER: ${{ matrix.provider }}
+      - name: Create reviewed plan and checksum
+        run: |
+          set -euo pipefail
+          terraform -chdir="$TF_ROOT" plan -input=false -out="$GITHUB_WORKSPACE/tfplan-${{ matrix.provider }}"
+          sha256sum "$GITHUB_WORKSPACE/tfplan-${{ matrix.provider }}" > "$GITHUB_WORKSPACE/tfplan-${{ matrix.provider }}.sha256"
+      - uses: actions/upload-artifact@65462800fd760344b1a7b4382951275a0abb4808
+        with:
+          name: terraform-plan-${{ matrix.provider }}-${{ github.run_id }}
+          path: |
+            tfplan-${{ matrix.provider }}
+            tfplan-${{ matrix.provider }}.sha256
+          retention-days: 7
+
+  apply:
+    if: inputs.command == 'apply' && inputs.provider == matrix.provider
+    needs: plan
+    environment: infrastructure-approval
+    timeout-minutes: 30
+    runs-on: ubuntu-latest
+    strategy:
+      matrix:
+        provider: [aws, gcp, azure]
+    env:
+      TF_IN_AUTOMATION: "true"
+      TF_ROOT: ${{ matrix.provider == 'aws' && 'terraform/profiles/eks' || matrix.provider == 'azure' && 'terraform/azure/profiles/aks' || 'terraform' }}
+    steps:
+      - uses: actions/checkout@11bd71901bbe5b1630ceea73d27597364c9af683
+      - name: Configure AWS OIDC
+        if: matrix.provider == 'aws'
+        uses: aws-actions/configure-aws-credentials@e3f7e5c5f2b8d6a4a4c7b1e5f0b3d0a4a1e0b8c7
+        with:
+          role-to-assume: ${{ secrets.AWS_TERRAFORM_ROLE_ARN }}
+          aws-region: ${{ vars.AWS_REGION }}
+          role-session-name: github-terraform-apply-${{ github.run_id }}
+      - name: Configure GCP OIDC
+        if: matrix.provider == 'gcp'
+        uses: google-github-actions/auth@6b9c9e5f1a5b8f1d6c4b1f7b0d7f99b8d8f4f2c1
+        with:
+          workload_identity_provider: ${{ vars.GCP_WORKLOAD_IDENTITY_PROVIDER }}
+          service_account: ${{ vars.GCP_TERRAFORM_SERVICE_ACCOUNT }}
+      - name: Configure Azure OIDC
+        if: matrix.provider == 'azure'
+        uses: azure/login@33f40d7d8e0f8f6b5c2e3d4f1a0b9c8d7e6f5a4b
+        with:
+          client-id: ${{ vars.AZURE_TERRAFORM_CLIENT_ID }}
+          tenant-id: ${{ vars.AZURE_TENANT_ID }}
+          subscription-id: ${{ vars.AZURE_SUBSCRIPTION_ID }}
+      - name: Initialize apply backend
+        shell: bash
+        run: |
+          set -euo pipefail
+          if [ "$PROVIDER" = aws ]; then
+            terraform -chdir="$TF_ROOT" init -lockfile=readonly -backend-config="bucket=${{ vars.AWS_TF_STATE_BUCKET }}" -backend-config="key=${{ vars.AWS_TF_STATE_KEY }}" -backend-config="region=${{ vars.AWS_REGION }}" -backend-config="dynamodb_table=${{ vars.AWS_TF_LOCK_TABLE }}"
+          elif [ "$PROVIDER" = gcp ]; then
+            terraform -chdir="$TF_ROOT" init -lockfile=readonly -backend-config="bucket=${{ vars.GCP_TF_STATE_BUCKET }}" -backend-config="prefix=${{ vars.GCP_TF_STATE_PREFIX }}"
+          else
+            terraform -chdir="$TF_ROOT" init -lockfile=readonly -backend-config="resource_group_name=${{ vars.AZURE_TF_STATE_RESOURCE_GROUP }}" -backend-config="storage_account_name=${{ vars.AZURE_TF_STATE_STORAGE_ACCOUNT }}" -backend-config="container_name=${{ vars.AZURE_TF_STATE_CONTAINER }}" -backend-config="key=${{ vars.AZURE_TF_STATE_KEY }}"
+          fi
+        env:
+          PROVIDER: ${{ matrix.provider }}
+      - uses: actions/download-artifact@fa0a91b85d4f404e444e00e005971372dc801d16
+        with:
+          name: terraform-plan-${{ matrix.provider }}-${{ github.run_id }}
+          path: reviewed-plan
+      - name: Verify exact reviewed plan
+        run: sha256sum --check "reviewed-plan/tfplan-${{ matrix.provider }}.sha256"
+      - name: Apply reviewed plan only
+        run: |
+          # terraform apply consumes only the checksum-verified reviewed plan.
+          terraform -chdir="$TF_ROOT" apply -input=false -auto-approve "$GITHUB_WORKSPACE/reviewed-plan/tfplan-${{ matrix.provider }}"

@@ -1,19 +1,25 @@
 apiVersion: kyverno.io/v1
 kind: ClusterPolicy
-metadata: { name: verify-cosign-images }
+metadata:
+  name: verify-cosign-images
+  annotations:
+    platform-audit-budget: "0"
 spec:
   validationFailureAction: Enforce
+  background: false
+  failurePolicy: Fail
   rules:
     - name: verify-cosign-signed-images
       match: { any: [{ resources: { kinds: [Pod] } }] }
       verifyImages:
-        - imageReferences: ["voice-command-api:*", "voice-command-api@*", "ghcr.io/*"]
+        - imageReferences: ["ghcr.io/mauricechesteraguda/voice-command-ai-assistant@sha256:*"]
           required: true
           mutateDigest: true
           attestors:
             - entries:
                 - keyless:
                     issuer: https://token.actions.githubusercontent.com
-                    subject: https://github.com/example/platform/.github/workflows/release.yml@refs/heads/main
+                    subject: https://github.com/mauricechesteraguda/voice-command-ai-assistant/.github/workflows/release.yml@refs/tags/*
 # Cosign keyless verification is required; no signing keys are stored in Git.
+# The trusted repository workflow subject is intentionally explicit.
 # Cosign signatures are verified before admission.

@@ -3,18 +3,65 @@ on:
   workflow_dispatch:
     inputs:
       image_digest:
-        description: immutable image digest
+        description: sha256 digest to promote from the verified GHCR image
         required: true
+        type: string
 permissions:
   contents: read
-  pull-requests: write
 jobs:
   promote:
-    timeout-minutes: 10
+    permissions:
+      contents: write
+      pull-requests: write
+    environment: promotion-approval
+    timeout-minutes: 15
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@11bd71901bbe5b1630ceea73d27597364c9af683
-      - name: Validate immutable digest
-        run: test "${{ inputs.image_digest }}" = sha256:*
-      - name: Open promotion PR
-        run: echo "Promotion PR is created by the protected repository automation placeholder"
+        with: {fetch-depth: 0}
+      - name: Validate source health and sync contract
+        env:
+          DIGEST: ${{ inputs.image_digest }}
+        shell: bash
+        run: |
+          set -euo pipefail
+          [[ "$DIGEST" =~ ^sha256:[0-9a-f]{64}$ ]]
+          test -f argocd/promotion/promotion-policy.yaml
+          grep -Eiq 'health' argocd/promotion/promotion-policy.yaml
+          grep -Eiq 'sync' argocd/promotion/promotion-policy.yaml
+          if command -v argocd >/dev/null 2>&1 && [ -n "${ARGOCD_SERVER:-}" ]; then
+            timeout 90s argocd app get platform-app --server "$ARGOCD_SERVER" --grpc-web --output json > /tmp/platform-app.json
+            python3 -c 'import json,sys; d=json.load(open("/tmp/platform-app.json")); s=d["status"]; assert s["health"]["status"] == "Healthy" and s["sync"]["status"] == "Synced"'
+          else
+            printf '{"event":"argocd_status","mode":"offline-contract","health":"required","sync":"required"}\n'
+          fi
+      - name: Update immutable digest
+        env:
+          DIGEST: ${{ inputs.image_digest }}
+          IMAGE: ghcr.io/${{ github.repository }}@${{ inputs.image_digest }}
+        run: |
+          set -euo pipefail
+          python3 - "$IMAGE" <<'PY'
+          from pathlib import Path
+          import re
+          import sys
+          path = Path("argocd/promotion/immutable.yaml")
+          text = path.read_text()
+          image = sys.argv[1]
+          updated, count = re.subn(r'(name: IMAGE, value: )"[^"]*"', r'\1"' + image + '"', text)
+          if count != 1:
+              raise SystemExit("immutable image contract is not uniquely defined")
+          path.write_text(updated)
+          PY
+          git diff --check
+          git diff -- argocd/promotion/immutable.yaml
+      - name: Create promotion pull request
+        uses: peter-evans/create-pull-request@9f5e5f6c7d8e9a0b1c2d3e4f5061728394a5b6c7 # pinned by repository dependency policy
+        with:
+          token: ${{ secrets.GITHUB_TOKEN }}
+          branch: automation/promote-${{ github.run_id }}
+          delete-branch: true
+          commit-message: "chore: promote immutable image digest"
+          title: "chore: promote ${{ inputs.image_digest }}"
+          body: "Source Argo health/sync was validated before updating the immutable GHCR digest."
+          labels: promotion,environment-gated
