@@ -11,7 +11,8 @@ def test_azure_profile_is_pinned_and_composed() -> None:
     text = (profile / "main.tf").read_text()
     assert 'version = "4.44.0"' in text
     for module in ("network", "cluster", "platform-services"):
-        assert re.search(rf'source\s*=\s*"../../../modules/{module}"', text)
+        assert re.search(rf'source\s*=\s*"../../modules/{module}"', text)
+    assert not re.search(r'source\s*=\s*"[^"\n]*(?:aws|gcp)[^"\n]*"', text, re.IGNORECASE)
 
 
 def test_aks_has_budgeted_autoscaling_and_workload_identity() -> None:
