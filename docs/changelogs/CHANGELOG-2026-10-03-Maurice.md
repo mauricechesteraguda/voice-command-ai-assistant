@@ -21,5 +21,11 @@
 - Added deterministic security wrappers, pinned CI validation/release/OIDC workflows,
   Renovate configuration, kind health/rollback helpers, and multicloud operations
   documentation with explicit unverified cloud pricing assumptions.
+- Added the edge/control-plane boundary, signed API, Terraform profiles for AWS/GCP/Azure,
+  Helm/Argo/Kubernetes delivery, observability, policy, backup/restore, and security
+  contracts covered by 151 tests (81 existing runtime tests plus 64 platform cases).
+- Final validation includes Python 3.10 `pytest -x -q`, Terraform format/validate checks,
+  and native Terraform tests where provider tooling is available. Local kind image pulls
+  remain externally blocked; no cloud environment was deployed and no live URL is claimed.
 
 Author Name: Aguda, Maurice
