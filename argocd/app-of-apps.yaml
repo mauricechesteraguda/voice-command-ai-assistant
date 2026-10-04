@@ -5,8 +5,8 @@ metadata:
   namespace: argocd
   finalizers: [resources-finalizer.argocd.argoproj.io]
 spec:
-  project: platform
-  source: { repoURL: https://example.invalid/platform.git, targetRevision: main, path: argocd/applications }
+  project: platform-control
+  source: { repoURL: https://github.com/mauricechesteraguda/voice-command-ai-assistant.git, targetRevision: main, path: argocd/applications }
   destination: { server: https://kubernetes.default.svc, namespace: argocd }
   syncPolicy:
     automated: { prune: true, selfHeal: true, allowEmpty: false }

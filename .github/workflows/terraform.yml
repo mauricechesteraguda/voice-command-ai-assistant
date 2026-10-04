@@ -9,6 +9,15 @@ on:
 permissions:
   contents: read
   id-token: write
+# AWS_OIDC_PROVIDER_ARN is a protected repository variable containing the real
+# account-qualified provider ARN. The required shape is
+# arn:aws:iam::123456789012:oidc-provider/token.actions.githubusercontent.com
+# (the numeric account above is syntax documentation, never a deployment value).
+# The IAM trust policy must StringEquals both token.actions.githubusercontent.com:aud
+# = sts.amazonaws.com and token.actions.githubusercontent.com:sub for this repository
+# and workflow; wildcard subjects are not permitted.
+env:
+  AWS_OIDC_PROVIDER_ARN: ${{ vars.AWS_OIDC_PROVIDER_ARN }}
 jobs:
   terraform:
     environment: infrastructure-approval
@@ -16,7 +25,11 @@ jobs:
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@11bd71901bbe5b1630ceea73d27597364c9af683
-      - name: OIDC placeholder
-        run: test -n "${ACTIONS_ID_TOKEN_REQUEST_URL}" || true
-      - run: terraform -chdir=terraform init -backend=false
-      - run: terraform -chdir=terraform ${{ inputs.command == 'apply' && 'plan -out=tfplan' || 'plan' }}
+      - uses: google-github-actions/auth@6b9c9e5f1a5b8f1d6c4b1f7b0d7f99b8d8f4f2c1
+        with:
+          workload_identity_provider: ${{ vars.GCP_WORKLOAD_IDENTITY_PROVIDER }}
+          service_account: ${{ vars.GCP_TERRAFORM_SERVICE_ACCOUNT }}
+      - run: terraform -chdir=terraform init -backend-config="bucket=${{ vars.TF_STATE_BUCKET }}"
+      - run: terraform -chdir=terraform plan -out=tfplan
+      - if: inputs.command == 'apply'
+        run: terraform -chdir=terraform apply -auto-approve tfplan

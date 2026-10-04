@@ -64,12 +64,17 @@ data "aws_iam_policy_document" "workload_trust" {
     actions = ["sts:AssumeRoleWithWebIdentity"]
     principals {
       type        = "Federated"
-      identifiers = ["arn:aws:iam:::oidc-provider/${replace(var.oidc_issuer, "https://", "")}"]
+      identifiers = [var.oidc_provider_arn]
     }
     condition {
       test     = "StringEquals"
       variable = "${replace(var.oidc_issuer, "https://", "")}:aud"
       values   = ["sts.amazonaws.com"]
+    }
+    condition {
+      test     = "StringEquals"
+      variable = "${replace(var.oidc_issuer, "https://", "")}:sub"
+      values   = var.service_account_subjects
     }
   }
 }

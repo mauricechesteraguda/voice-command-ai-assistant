@@ -8,7 +8,7 @@ spec:
       containers:
         - name: gate
           image: alpine:3.20
-          command: ["sh", "-c", "test -n \"$REVISION\" && echo immutable revision gate passed"]
-          env: [{ name: REVISION, value: "sha256:0000000000000000000000000000000000000000000000000000000000000000" }]
+          command: ["sh", "-c", "case \"$IMAGE\" in *@sha256:*) digest=\"${IMAGE##*@}\"; test \"$digest\" != sha256:$(printf '0%.0s' $(seq 1 64));; *) exit 1;; esac"]
+          env: [{ name: IMAGE, value: "" }]
           securityContext: { runAsNonRoot: true, allowPrivilegeEscalation: false, capabilities: { drop: [ALL] } }
           resources: { requests: { cpu: 10m, memory: 16Mi }, limits: { cpu: 50m, memory: 64Mi } }

@@ -18,6 +18,8 @@ module "services" {
   domain_name           = var.domain_name
   backup_retention_days = 7
   deletion_protection   = var.deletion_protection
+  oidc_issuer           = var.oidc_issuer
+  oidc_provider_arn     = var.oidc_provider_arn
   tags                  = var.tags
 }
 module "cluster" {

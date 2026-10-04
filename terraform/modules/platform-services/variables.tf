@@ -27,6 +27,14 @@ variable "oidc_issuer" {
   type    = string
   default = null
 }
+variable "oidc_provider_arn" {
+  type    = string
+  default = null
+}
+variable "service_account_subjects" {
+  type    = list(string)
+  default = ["system:serviceaccount:argocd:argocd-controller", "system:serviceaccount:external-secrets:external-secrets", "system:serviceaccount:external-dns:external-dns", "system:serviceaccount:cert-manager:cert-manager"]
+}
 variable "backup_retention_days" {
   type    = number
   default = 7

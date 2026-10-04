@@ -208,7 +208,7 @@ especially for barge-in testing.
 
 ## Tests
 
-The deterministic suite contains 81 runtime contract tests and makes no
+The deterministic suite currently collects 151 contract tests and makes no
 network, microphone, model, or speech calls:
 
 ```bash

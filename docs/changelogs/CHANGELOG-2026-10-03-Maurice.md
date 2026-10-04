@@ -7,7 +7,7 @@
   streaming, clause buffering, and `/usr/bin/say` playback.
 - Added current prerequisites, virtual-environment installation, explicit
   model provisioning, privacy/logging guidance, acoustic limitations,
-  troubleshooting, and the 41-test commands.
+  troubleshooting, and the 151-test command (`python3 -m pytest -q`).
 - Replaced the outdated platform and hosted speech-service guidance.
 - Added Linux Pulse/PipeWire, faster-whisper, Piper/paplay, private Ollama,
   explicit multi-artifact provisioning, hardened CPU Compose, and optional

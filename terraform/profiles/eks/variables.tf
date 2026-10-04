@@ -46,6 +46,14 @@ variable "deletion_protection" {
   type    = bool
   default = true
 }
+variable "oidc_issuer" {
+  type    = string
+  default = null
+}
+variable "oidc_provider_arn" {
+  type    = string
+  default = null
+}
 variable "tags" {
   type = map(string)
   default = {

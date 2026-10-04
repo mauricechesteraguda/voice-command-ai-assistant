@@ -2,7 +2,7 @@ nameOverride: voice-command-api
 image:
   repository: voice-command-api
   tag: "0.1.0"
-  digest: "sha256:0000000000000000000000000000000000000000000000000000000000000000"
+  digest: ""
 service:
   port: 8000
 migration:

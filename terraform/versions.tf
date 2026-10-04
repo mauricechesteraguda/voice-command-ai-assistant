@@ -1,5 +1,9 @@
 terraform {
   required_version = ">= 1.6.0, < 2.0.0"
+  backend "gcs" {
+    bucket = "REQUIRED_TF_STATE_BUCKET"
+    prefix = "voice-platform"
+  }
 
   required_providers {
     google = {

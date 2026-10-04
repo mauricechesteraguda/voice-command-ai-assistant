@@ -17,6 +17,9 @@ output "database_secret_arn" {
 output "workload_role_arns" {
   value = module.services.workload_role_arns
 }
+output "oidc_provider_arn" {
+  value = module.cluster.oidc_provider_arn
+}
 output "gateway_waf_arn" {
   value = module.services.gateway_waf_arn
 }

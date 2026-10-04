@@ -7,6 +7,7 @@ data "aws_iam_policy_document" "cluster_assume" {
     }
   }
 }
+data "aws_caller_identity" "current" {}
 resource "aws_iam_role" "cluster" {
   name               = "${var.name}-eks"
   assume_role_policy = data.aws_iam_policy_document.cluster_assume.json

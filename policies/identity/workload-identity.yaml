@@ -3,4 +3,6 @@ kind: ConfigMap
 metadata: { name: workload-identity-contract, namespace: platform-system }
 data:
   provider: "kind-local-or-cloud-provider-bound-service-account"
+  repository: "https://github.com/mauricechesteraguda/voice-command-ai-assistant"
+  cosign_identity: "https://github.com/mauricechesteraguda/voice-command-ai-assistant/.github/workflows/release.yml@refs/tags/*"
   rule: "Bind provider workload identity to least-privilege service accounts; do not mount static cloud keys."

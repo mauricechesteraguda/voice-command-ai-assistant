@@ -1,8 +1,27 @@
 apiVersion: argoproj.io/v1alpha1
 kind: AppProject
+metadata: { name: platform-control, namespace: argocd }
+spec:
+  sourceRepos: [https://github.com/mauricechesteraguda/voice-command-ai-assistant.git]
+  destinations:
+    - { namespace: argocd, server: https://kubernetes.default.svc }
+    - { namespace: platform-system, server: https://kubernetes.default.svc }
+  clusterResourceWhitelist:
+    - { group: '', kind: Namespace }
+    - { group: argoproj.io, kind: Application }
+    - { group: argoproj.io, kind: ApplicationSet }
+  namespaceResourceWhitelist: [{ group: '*', kind: '*' }]
+---
+apiVersion: argoproj.io/v1alpha1
+kind: AppProject
 metadata: { name: platform, namespace: argocd }
 spec:
-  sourceRepos: [https://example.invalid/platform.git]
-  destinations: [{ namespace: '*', server: https://kubernetes.default.svc }]
-  clusterResourceWhitelist: [{ group: '*', kind: '*' }]
+  sourceRepos: [https://github.com/mauricechesteraguda/voice-command-ai-assistant.git]
+  destinations:
+    - { namespace: platform, server: https://kubernetes.default.svc }
+    - { namespace: platform-dev, server: https://kubernetes.default.svc }
+    - { namespace: platform-staging, server: https://kubernetes.default.svc }
+    - { namespace: platform-prod, server: https://kubernetes.default.svc }
+  clusterResourceWhitelist: []
+  namespaceResourceWhitelist: [{ group: '*', kind: '*' }]
   syncWindows: [{ kind: deny, schedule: '0 0 * * 0', duration: 24h, applications: ['*'], manualSync: true }]

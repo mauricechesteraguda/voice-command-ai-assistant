@@ -3,6 +3,6 @@ kind: Application
 metadata: { name: kind-platform, namespace: argocd }
 spec:
   project: platform
-  source: { repoURL: https://example.invalid/platform.git, targetRevision: main, path: kind }
+  source: { repoURL: https://github.com/mauricechesteraguda/voice-command-ai-assistant.git, targetRevision: main, path: kind }
   destination: { server: https://kubernetes.default.svc, namespace: platform-system }
   syncPolicy: { automated: { prune: true, selfHeal: true }, syncOptions: [CreateNamespace=true, ServerSideApply=true] }

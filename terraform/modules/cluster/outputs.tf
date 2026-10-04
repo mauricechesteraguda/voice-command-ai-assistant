@@ -10,5 +10,8 @@ output "cluster_ca_data" {
   sensitive = true
 }
 output "oidc_provider_arn" {
+  value = "arn:aws:iam::${data.aws_caller_identity.current.account_id}:oidc-provider/${replace(aws_eks_cluster.this.identity[0].oidc[0].issuer, "https://", "")}"
+}
+output "oidc_issuer_url" {
   value = aws_eks_cluster.this.identity[0].oidc[0].issuer
 }

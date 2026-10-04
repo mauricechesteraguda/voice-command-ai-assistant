@@ -117,8 +117,14 @@ resource "google_container_node_pool" "general" {
     auto_upgrade = true
   }
   node_config {
-    machine_type    = var.node_machine_type
-    oauth_scopes    = ["https://www.googleapis.com/auth/cloud-platform"]
+    machine_type = var.node_machine_type
+    oauth_scopes = [
+      "https://www.googleapis.com/auth/logging.write",
+      "https://www.googleapis.com/auth/monitoring",
+      "https://www.googleapis.com/auth/servicecontrol",
+      "https://www.googleapis.com/auth/service.management.readonly",
+      "https://www.googleapis.com/auth/trace.append",
+    ]
     service_account = google_service_account.nodes.email
     workload_metadata_config { mode = "GKE_METADATA" }
     shielded_instance_config {
