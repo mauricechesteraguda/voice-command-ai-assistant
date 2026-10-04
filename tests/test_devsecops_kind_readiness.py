@@ -37,6 +37,22 @@ def test_tc_devops_0063_declares_control_plane_local_image_and_kind_load_contrac
 
 def test_tc_devops_0064_runs_bounded_focused_kind_flow_in_static_dry_mode(tmp_path: Path) -> None:
     flow = ROOT / "scripts" / "kind-focused-flow.sh"
+    image_definition = ROOT / "Dockerfile.control-plane"
+    requirements_lock = ROOT / "requirements.lock"
+    bootstrap = (ROOT / "scripts" / "kind-focused-flow.sh").read_text()
+    cluster_profile = (ROOT / "kind" / "cluster.yaml").read_text()
+    assert image_definition.is_file(), "TC-DEVOPS-0064 requires a dedicated control-plane image definition"
+    assert requirements_lock.is_file(), "TC-DEVOPS-0064 requires pinned control-plane dependencies"
+    image_text = image_definition.read_text()
+    assert "FROM " in image_text and "@sha256:" in image_text
+    assert "requirements.lock" in image_text
+    assert "docker build" in bootstrap and "Dockerfile.control-plane" in bootstrap
+    assert bootstrap.index("docker build") < bootstrap.index("kind load docker-image")
+    assert bootstrap.index("kind create cluster") < bootstrap.index("kind load docker-image")
+    assert "KIND_CLUSTER_NAME" in bootstrap
+    assert "voice-platform-" in bootstrap
+    assert "kind delete cluster" in bootstrap and "timeout" in bootstrap
+    assert "name: voice-platform" not in cluster_profile
     trace_dir = tmp_path / "trace"
     trace_dir.mkdir()
     result = subprocess.run(

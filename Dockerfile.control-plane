@@ -1,0 +1,11 @@
+# Dedicated, reproducible image contract for the local control-plane acceptance flow.
+FROM python:3.11.10-slim-bookworm@sha256:840e180ebcc6e5c8efab209c43f5e40fd2af98cb49db5c7103c90539c56bb30e
+ENV PYTHONDONTWRITEBYTECODE=1 PYTHONUNBUFFERED=1 PIP_NO_CACHE_DIR=1
+WORKDIR /app
+COPY requirements.lock ./requirements.lock
+RUN python -m pip install --no-cache-dir -r requirements.lock
+COPY . .
+RUN useradd --create-home --uid 10001 assistant \
+    && chown -R assistant:assistant /app
+USER assistant
+ENTRYPOINT ["python", "assistant.py"]

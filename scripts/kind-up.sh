@@ -3,6 +3,7 @@ set -Eeuo pipefail
 
 SESSION_ID="kind-$(date -u +%Y%m%dT%H%M%SZ)-$$"
 trace="${RUNNER_TEMP:-/tmp}/$SESSION_ID.jsonl"
+KIND_CLUSTER_NAME="${KIND_CLUSTER_NAME:-voice-platform-${SESSION_ID#kind-}}"
 log(){ printf '{"session":"%s","event":"%s","detail":"%s"}\n' "$SESSION_ID" "$1" "${*:2}" | tee -a "$trace"; }
 finish(){ log inspected-trace; rm -f "$trace"; }
 trap finish EXIT
@@ -13,7 +14,7 @@ command -v kubectl >/dev/null
 command -v docker >/dev/null
 command -v openssl >/dev/null
 log external-call kind-create
-timeout 300 kind create cluster --config kind/cluster.yaml "${@:-}"
+timeout 300 kind create cluster --config kind/cluster.yaml --name "$KIND_CLUSTER_NAME" "${@:-}"
 kubectl create namespace platform-system --dry-run=client -o yaml | kubectl apply -f -
 
 # Runtime-only values. Values are supplied by the caller or generated immediately before
@@ -32,7 +33,7 @@ kubectl create secret generic control-plane-credentials -n platform-system \
 log external-call image-build
 docker build -t voice-command-ai-assistant:local .
 log external-call image-load
-kind load docker-image voice-command-ai-assistant:local
+kind load docker-image voice-command-ai-assistant:local --name "$KIND_CLUSTER_NAME"
 log external-call local-services
 kubectl apply -f kind/local-services.yaml
 log ready
