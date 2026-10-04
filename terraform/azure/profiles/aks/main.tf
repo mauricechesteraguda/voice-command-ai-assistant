@@ -20,7 +20,7 @@ resource "azurerm_resource_group" "this" {
 }
 
 module "network" {
-  source                        = "../../../modules/network"
+  source                        = "../../modules/network"
   name                          = var.name
   location                      = var.location
   resource_group_name           = azurerm_resource_group.this.name
@@ -31,7 +31,7 @@ module "network" {
 }
 
 module "platform_services" {
-  source                     = "../../../modules/platform-services"
+  source                     = "../../modules/platform-services"
   name                       = var.name
   location                   = var.location
   resource_group_name        = azurerm_resource_group.this.name
@@ -44,7 +44,7 @@ module "platform_services" {
 }
 
 module "cluster" {
-  source                     = "../../../modules/cluster"
+  source                     = "../../modules/cluster"
   name                       = var.name
   location                   = var.location
   resource_group_name        = azurerm_resource_group.this.name
