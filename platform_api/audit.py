@@ -12,12 +12,14 @@ class AuditEvent:
     actor: str; action: str; outcome: str; created_at: datetime; metadata: dict[str, str]
 
 class AuditLog:
-    def __init__(self, *, clock: Callable[[], datetime] | None = None) -> None:
-        self.clock = clock or (lambda: datetime.now(timezone.utc)); self._events: list[AuditEvent] = []
+    def __init__(self, *, clock: Callable[[], datetime] | None = None, repository: Any | None = None) -> None:
+        self.clock = clock or (lambda: datetime.now(timezone.utc)); self.repository = repository; self._events: list[AuditEvent] = []
 
     @traced
     def append(self, actor: str, action: str, outcome: str, metadata: dict[str, Any] | None = None) -> AuditEvent:
-        event = AuditEvent(actor[:128], action[:128], outcome[:64], self.clock(), redact_metadata(metadata)); self._events.append(event); return event
+        event = AuditEvent(actor[:128], action[:128], outcome[:64], self.clock(), redact_metadata(metadata)); self._events.append(event)
+        if self.repository: self.repository.append_audit({"actor": event.actor, "action": event.action, "outcome": event.outcome, "metadata": event.metadata, "created_at": event.created_at})
+        return event
 
     @traced
     def events(self) -> tuple[AuditEvent, ...]:

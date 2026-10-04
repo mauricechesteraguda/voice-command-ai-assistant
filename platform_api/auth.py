@@ -51,10 +51,48 @@ class JWTAdapter:
             raise ValueError("invalid token") from exc
 
 class OIDCAdapter:
-    """OIDC discovery/JWKS port; transport is always supplied by the caller."""
-    def __init__(self, transport: Callable[[str], dict[str, Any]], issuer: str) -> None:
-        self.transport, self.issuer = transport, issuer
+    """OIDC discovery/JWKS port with asymmetric verification and bounded cache."""
+    def __init__(self, transport: Callable[[str], dict[str, Any]], issuer: str, *, clock: Callable[[], float] = time.time, max_age: int = 300, max_keys: int = 32) -> None:
+        if not issuer.startswith(("https://", "http://")): raise ValueError("invalid issuer")
+        self.transport, self.issuer, self.clock, self.max_age, self.max_keys = transport, issuer.rstrip("/"), clock, max_age, max_keys
+        self._discovery: tuple[float, dict[str, Any]] | None = None; self._jwks: tuple[float, dict[str, Any]] | None = None
 
     @traced
     def discover(self) -> dict[str, Any]:
-        return self.transport(self.issuer.rstrip("/") + "/.well-known/openid-configuration")
+        if self._discovery and self.clock() - self._discovery[0] < self.max_age: return self._discovery[1]
+        result = self.transport(self.issuer + "/.well-known/openid-configuration")
+        if result.get("issuer") and result["issuer"].rstrip("/") != self.issuer: raise ValueError("issuer mismatch")
+        self._discovery = (self.clock(), result); return result
+
+    @traced
+    def jwks(self) -> dict[str, Any]:
+        if self._jwks and self.clock() - self._jwks[0] < self.max_age: return self._jwks[1]
+        result = self.transport(str(self.discover()["jwks_uri"]))
+        self._jwks = (self.clock(), {"keys": list(result.get("keys", []))[:self.max_keys]}); return self._jwks[1]
+
+    @traced
+    def verify(self, token: str, *, audience: str, client_id: str | None = None) -> Claims:
+        """Verify asymmetric OIDC signatures; stale/outage responses are rejected."""
+        try:
+            head, body, signature = token.split("."); header = json.loads(_unb64(head)); payload = json.loads(_unb64(body)); now = int(self.clock())
+            if header.get("alg") not in {"RS256", "ES256"}: raise ValueError("algorithm")
+            key = next((k for k in self.jwks()["keys"] if k.get("kid") == header.get("kid")), None)
+            if key is None: raise ValueError("key")
+            from cryptography.hazmat.primitives.asymmetric import ec, padding, rsa
+            from cryptography.hazmat.primitives.hashes import SHA256
+            signing, sig = f"{head}.{body}".encode(), _unb64(signature)
+            if header["alg"] == "RS256":
+                n, e = int.from_bytes(_unb64(key["n"]), "big"), int.from_bytes(_unb64(key["e"]), "big")
+                rsa.RSAPublicNumbers(e, n).public_key().verify(sig, signing, padding.PKCS1v15(), SHA256())
+            else:
+                x, y = int.from_bytes(_unb64(key["x"]), "big"), int.from_bytes(_unb64(key["y"]), "big")
+                ec.EllipticCurvePublicNumbers(x, y, ec.SECP256R1()).public_key().verify(sig, signing, ec.ECDSA(SHA256()))
+            if payload.get("iss", self.issuer).rstrip("/") != self.issuer or payload.get("aud") != audience or (client_id and payload.get("azp") not in {None, client_id}): raise ValueError("claims")
+            if int(payload.get("exp", 0)) <= now: raise ValueError("expiry")
+            return Claims(str(payload["sub"]), str(payload.get("role", "device")), audience, int(payload["exp"]), str(payload.get("jti", "")))
+        except (ConnectionError, TimeoutError) as exc:
+            # Identity-provider outage is fail-closed for new access; cached keys are bounded.
+            raise ValueError("OIDC provider unavailable") from exc
+        except Exception as exc:
+            if isinstance(exc, ValueError): raise ValueError("invalid OIDC token") from exc
+            raise ValueError("invalid OIDC token") from exc

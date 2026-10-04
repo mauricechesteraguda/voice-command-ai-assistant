@@ -1,5 +1,6 @@
 -- implementation-10042026-Maurice
 -- PostgreSQL migration; apply transactionally and reverse with rollback/001.
+BEGIN;
 CREATE TABLE IF NOT EXISTS control_configurations (
     version BIGINT PRIMARY KEY,
     cohort TEXT NOT NULL,
@@ -25,3 +26,9 @@ CREATE TABLE IF NOT EXISTS telemetry_events (
     metadata_json JSONB NOT NULL,
     created_at TIMESTAMPTZ NOT NULL DEFAULT now()
 );
+CREATE TABLE IF NOT EXISTS idempotency_keys (
+    key TEXT PRIMARY KEY, response_json JSONB NOT NULL, created_at TIMESTAMPTZ NOT NULL DEFAULT now()
+);
+CREATE INDEX IF NOT EXISTS telemetry_events_created_at_idx ON telemetry_events(created_at);
+CREATE INDEX IF NOT EXISTS admin_audit_events_created_at_idx ON admin_audit_events(created_at);
+COMMIT;

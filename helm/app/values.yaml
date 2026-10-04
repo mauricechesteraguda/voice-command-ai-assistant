@@ -12,6 +12,9 @@ migration:
 externalSecrets:
   secretStore: platform-secrets
   keys: [DATABASE_URL, OIDC_CLIENT_SECRET]
+probes:
+  readinessPath: /v1/health/ready
+  livenessPath: /v1/health/live
 resources:
   requests: { cpu: 100m, memory: 128Mi }
   limits: { cpu: 500m, memory: 512Mi }

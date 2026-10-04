@@ -31,6 +31,7 @@ class SafeError:
     remediation: str
     correlation_id: str
     idempotency_key: str | None = None
+    cause: str = "boundary failure"
 
     def as_dict(self) -> dict[str, Any]:
         logger.info("error.serialized")

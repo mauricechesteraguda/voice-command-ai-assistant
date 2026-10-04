@@ -8,3 +8,8 @@ RETENTION = {"telemetry": timedelta(days=30), "audit": timedelta(days=365)}
 @traced
 def retention_days(record_class: str) -> int:
     return RETENTION[record_class].days
+
+@traced
+def purge(repository: object) -> int:
+    """Scheduled retention job; repository owns the transaction."""
+    return repository.purge(telemetry_days=30, audit_days=365)  # type: ignore[attr-defined]

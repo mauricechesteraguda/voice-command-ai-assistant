@@ -2,8 +2,9 @@
 
 # implementation-10042026-Maurice
 from __future__ import annotations
-import logging
+import logging, os, secrets
 from typing import Any
+import fastapi
 from fastapi import Depends, FastAPI, HTTPException, Request, Response
 from fastapi.security import HTTPAuthorizationCredentials, HTTPBearer
 from pydantic import BaseModel, Field
@@ -13,6 +14,8 @@ from .config import ConfigStore
 from .observability import Metrics, traced
 from .rbac import allows
 from .rate_limit import RateLimiter
+from .repository import PostgresRepository
+from .errors import PlatformError, ErrorCode, safe_error
 
 logger = logging.getLogger("control_plane.api")
 
@@ -26,26 +29,35 @@ class OverrideRequest(BaseModel):
 
 class ControlPlane:
     def __init__(self, *, jwt: JWTAdapter | None = None, config: ConfigStore | None = None, audit: AuditLog | None = None, limiter: RateLimiter | None = None, metrics: Metrics | None = None, db: Any | None = None) -> None:
-        self.jwt = jwt or JWTAdapter("development-only-control-plane-key")
-        self.config = config or ConfigStore("development-only-config-key")
-        self.audit, self.limiter, self.metrics, self.db = audit or AuditLog(), limiter or RateLimiter(), metrics or Metrics(), db
+        self.db = db or PostgresRepository()
+        signing = os.getenv("CONTROL_PLANE_SIGNING_KEY") or secrets.token_urlsafe(32)
+        jwt_secret = os.getenv("CONTROL_PLANE_JWT_SECRET") or secrets.token_urlsafe(32)
+        self.jwt = jwt or JWTAdapter(jwt_secret)
+        self.config = config or ConfigStore(signing, repository=self.db)
+        self.audit, self.limiter, self.metrics = audit or AuditLog(repository=self.db), limiter or RateLimiter(), metrics or Metrics()
         self.ready = True
 
 @traced
 def create_app(state: ControlPlane | None = None) -> FastAPI:
-    control = state or ControlPlane(); app = FastAPI(title="Voice Assistant Control Plane", version="v1")
+    control = state or ControlPlane(); app = fastapi.FastAPI(title="Voice Assistant Control Plane", version="v1")
     bearer = HTTPBearer(auto_error=False)
 
     @app.middleware("http")
     @traced
     async def lifecycle(request: Request, call_next: Any) -> Response:
         logger.info('{"event":"http.lifecycle","operation":"request.start"}')
-        allowed, retry_after = control.limiter.check(request.url.path)
+        correlation = request.headers.get("X-Correlation-ID", secrets.token_hex(8)); request.state.correlation_id = correlation
+        control.metrics.increment("requests_total")
+        allowed, retry_after = control.limiter.check(request.headers.get("X-Caller-ID", "anonymous"), scope="caller")
         if not allowed:
-            response = Response(content='{"detail":"rate limit exceeded"}', status_code=429, media_type="application/json")
+            response = Response(content='{"error_code":"RATE_LIMITED","remediation":"retry later","correlation_id":"'+correlation+'"}', status_code=429, media_type="application/json")
             response.headers["Retry-After"] = str(retry_after)
             return response
-        response = await call_next(request)
+        try: response = await call_next(request)
+        except Exception as exc:
+            envelope = safe_error(exc, correlation_id=correlation, idempotency_key=request.headers.get("Idempotency-Key"))
+            response = Response(content=__import__("json").dumps(envelope.as_dict()), status_code=envelope.status, media_type="application/json")
+        response.headers["X-Correlation-ID"] = correlation
         logger.info('{"event":"http.lifecycle","operation":"request.end"}')
         return response
 
@@ -71,6 +83,9 @@ def create_app(state: ControlPlane | None = None) -> FastAPI:
     @traced
     def live() -> dict[str, str]: return {"status": "live"}
 
+    @app.get("/healthz")
+    def healthz() -> dict[str, str]: return {"status": "live"}
+
     @app.get("/v1/health/ready")
     @traced
     def ready() -> dict[str, str]:
@@ -80,7 +95,10 @@ def create_app(state: ControlPlane | None = None) -> FastAPI:
     @app.get("/v1/telemetry")
     @traced
     def telemetry(_: Claims = Depends(require("read:telemetry"))) -> dict[str, Any]:
-        return {"retention_days": 30, "metrics": control.metrics.snapshot()}
+        control.metrics.increment("telemetry_requests_total")
+        # transport/drop are injectable at the edge; this endpoint returns only safe counters.
+        transport, drop = "injected", control.metrics.snapshot().get("telemetry_dropped_total", 0)
+        return {"retention_days": 30, "transport": transport, "drop": drop, "metrics": control.metrics.snapshot()}
 
     @app.get("/metrics", response_class=Response)
     @traced
@@ -97,10 +115,15 @@ def create_app(state: ControlPlane | None = None) -> FastAPI:
 
     @app.put("/v1/admin/config")
     @traced
-    def publish_config(body: ConfigRequest, user: Claims = Depends(require("write:config"))) -> dict[str, Any]:
+    def publish_config(body: ConfigRequest, request: Request, user: Claims = Depends(require("write:config"))) -> dict[str, Any]:
+        idempotency_key = request.headers.get("Idempotency-Key")
+        if idempotency_key and idempotency_key in control.db.idempotency: return control.db.idempotency[idempotency_key]
         try: current = control.config.publish(body.values, version=body.version, cohort=body.cohort)
         except ValueError as exc: raise HTTPException(409, "version must be monotonic") from exc
-        control.audit.append(user.subject, "config.publish", "success", {"version": body.version, "operation": "publish"}); return {"version": current.version, "signature": current.signature}
+        control.metrics.increment("config_publish_total"); control.audit.append(user.subject, "config.publish", "success", {"version": body.version, "operation": "publish"})
+        result = {"version": current.version, "signature": current.signature}
+        if idempotency_key: control.db.idempotency[idempotency_key] = result
+        return result
 
     @app.put("/v1/admin/devices/{device_id}/override")
     @traced

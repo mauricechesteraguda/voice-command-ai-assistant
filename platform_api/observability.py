@@ -40,6 +40,7 @@ class Metrics:
     """In-memory counters with a deliberately tiny injectable surface."""
     def __init__(self) -> None:
         self.counters: dict[str, int] = {}
+        self.tracer: Any | None = None
 
     @traced
     def increment(self, name: str) -> None:
@@ -48,3 +49,10 @@ class Metrics:
     @traced
     def snapshot(self) -> dict[str, int]:
         return dict(self.counters)
+
+    def span(self, name: str):
+        return self.tracer.start_as_current_span(name) if self.tracer else _NullSpan()
+
+class _NullSpan:
+    def __enter__(self): return self
+    def __exit__(self, *_: Any): return False

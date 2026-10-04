@@ -21,7 +21,7 @@ spec:
           envFrom: [{ secretRef: { name: voice-command-api-secrets } }]
           securityContext: { runAsNonRoot: true, allowPrivilegeEscalation: false, readOnlyRootFilesystem: true, capabilities: { drop: [ALL] } }
           resources: {{- toYaml .Values.resources | nindent 12 }}
-          readinessProbe: { httpGet: { path: /health, port: http }, periodSeconds: 10 }
-          livenessProbe: { httpGet: { path: /health, port: http }, periodSeconds: 30 }
+          readinessProbe: { httpGet: { path: {{ .Values.probes.readinessPath }}, port: http }, periodSeconds: 10 }
+          livenessProbe: { httpGet: { path: {{ .Values.probes.livenessPath }}, port: http }, periodSeconds: 30 }
           volumeMounts: [{ name: tmp, mountPath: /tmp }]
       volumes: [{ name: tmp, emptyDir: {} }]
