@@ -1,0 +1,16 @@
+gateway:
+  className: azure-application-gateway
+  # Hook only: the Gateway API controller/WAF policy is installed by the
+  # platform delivery layer, not by Terraform workload resources.
+  wafPolicyRef: platform-waf-policy
+  tls:
+    issuer: letsencrypt-prod
+externalDns:
+  provider: azure
+  serviceAccount:
+    name: external-dns
+    workloadIdentityClientId: "<terraform output: workload_identity_client_ids.external_dns>"
+certManager:
+  serviceAccount:
+    name: cert-manager
+    workloadIdentityClientId: "<terraform output: workload_identity_client_ids.cert_manager>"

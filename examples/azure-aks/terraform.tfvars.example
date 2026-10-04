@@ -1,0 +1,7 @@
+name = "voice-dev"
+location = "eastus"
+dns_zone_name = "example.invalid"
+postgres_admin_login = "platform_admin"
+# Supply through an untracked tfvars file or TF_VAR_postgres_admin_password.
+postgres_admin_password = "REPLACE_WITH_A_SECRET_FROM_YOUR_SECRET_MANAGER"
+key_vault_admin_object_ids = ["00000000-0000-0000-0000-000000000000"]
