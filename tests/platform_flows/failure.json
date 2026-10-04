@@ -1,0 +1,11 @@
+{
+  "flow": "approved_failure",
+  "status": "rejected",
+  "idempotency_key": "flow-failure-001",
+  "events": ["validate", "authorize", "apply_failed", "rollback"],
+  "error": {
+    "error_code": "DEPENDENCY_UNAVAILABLE",
+    "remediation": "retry after the dependency recovers",
+    "source_preserved": true
+  }
+}

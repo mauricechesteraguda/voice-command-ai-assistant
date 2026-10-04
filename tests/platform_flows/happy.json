@@ -1,0 +1,7 @@
+{
+  "flow": "approved_happy",
+  "status": "accepted",
+  "idempotency_key": "flow-happy-001",
+  "events": ["validate", "authorize", "apply", "verify"],
+  "result": {"version": 1, "audit_recorded": true}
+}

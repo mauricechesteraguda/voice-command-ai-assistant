@@ -8,7 +8,7 @@ run "plan_requires_safe_defaults" {
     deletion_protection = true
   }
   module {
-    source = "../profiles/eks"
+    source = "./profiles/eks"
   }
   assert {
     condition     = var.deletion_protection == true
