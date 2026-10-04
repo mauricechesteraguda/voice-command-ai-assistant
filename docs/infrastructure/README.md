@@ -1,6 +1,6 @@
 # Infrastructure operations
 
-**Deployment status:** `Live environment: Not deployed`  
+**Deployment status:** `Live environment: Not deployed`
 **Live URL placeholder:** `https://<environment>.<domain.example>` (placeholder only; no live URL exists).
 
 ```mermaid

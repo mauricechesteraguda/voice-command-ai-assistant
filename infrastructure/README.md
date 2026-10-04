@@ -1,6 +1,6 @@
 # Multicloud GitOps operations
 
-**Deployment status:** `Live environment: Not deployed`  
+**Deployment status:** `Live environment: Not deployed`
 **Live URL (placeholder):** `https://<environment>.<domain.example>` — placeholder only; no live endpoint is claimed.
 
 This guide covers the Terraform-owned cloud foundation, Argo-owned workloads, local kind validation, and EKS/GKE/AKS profile placeholders. Conversation audio, transcripts, prompts, and responses remain in the edge runtime.

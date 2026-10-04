@@ -15,6 +15,6 @@ jobs:
     steps:
       - uses: actions/checkout@11bd71901bbe5b1630ceea73d27597364c9af683
       - name: Validate immutable digest
-        run: test "${{ inputs.image_digest }}" = sha256:* 
+        run: test "${{ inputs.image_digest }}" = sha256:*
       - name: Open promotion PR
         run: echo "Promotion PR is created by the protected repository automation placeholder"

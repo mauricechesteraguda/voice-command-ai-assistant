@@ -1,6 +1,6 @@
 # Infrastructure decisions
 
-**Deployment status:** `Live environment: Not deployed`  
+**Deployment status:** `Live environment: Not deployed`
 **Expected URL pattern:** `https://<environment>.<domain.example>` (placeholder; not live).
 
 ```mermaid
