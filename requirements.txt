@@ -3,6 +3,9 @@
 # deterministic suite and normal startup never trigger model downloads.
 # The testable core intentionally has no import-time third-party dependency.
 -c requirements.lock
+fastapi==0.115.6
+pydantic==2.10.4
+uvicorn==0.34.0
 ollama==0.3.3
 faster-whisper==1.0.3; platform_system == "Linux"
 piper-tts==1.2.0; platform_system == "Linux"
