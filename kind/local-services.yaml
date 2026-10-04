@@ -2,6 +2,25 @@ apiVersion: v1
 kind: Namespace
 metadata: { name: platform-system, labels: { pod-security.kubernetes.io/enforce: restricted } }
 ---
+apiVersion: v1
+kind: ConfigMap
+metadata: { name: dex-config, namespace: platform-system }
+data:
+  config.yaml: |
+    issuer: http://dex.platform-system.svc.cluster.local:5556/dex
+    storage:
+      type: sqlite3
+      config:
+        file: /tmp/dex.db
+    web:
+      http: 0.0.0.0:5556
+    staticClients:
+      - id: voice-command-local
+        name: Voice Command local control plane
+        redirectURIs:
+          - http://localhost:8000/auth/callback
+        "clientSecret": "$DEX_CLIENT_SECRET"
+---
 apiVersion: apps/v1
 kind: StatefulSet
 metadata: { name: postgresql, namespace: platform-system }
@@ -21,7 +40,7 @@ spec:
           envFrom: [{ secretRef: { name: postgresql-credentials } }]
           securityContext: { runAsNonRoot: true, allowPrivilegeEscalation: false, capabilities: { drop: [ALL] } }
           resources: { requests: { cpu: 100m, memory: 256Mi }, limits: { cpu: 500m, memory: 1Gi } }
-          readinessProbe: { exec: { command: ["pg_isready", "-U", "postgres"] } }
+          readinessProbe: { exec: { command: ["pg_isready", "-U", "postgres", "-d", "platform"] }, periodSeconds: 5, timeoutSeconds: 3 }
           volumeMounts: [{ name: data, mountPath: /var/lib/postgresql/data }]
   volumeClaimTemplates:
     - metadata: { name: data }
@@ -45,7 +64,65 @@ spec:
       containers:
         - name: dex
           image: ghcr.io/dexidp/dex:v2.41.1
-          args: ["dex", " serve", "/etc/dex/config.yaml"]
+          args: ["dex", "serve", "/etc/dex/config.yaml"]
+          env:
+            - name: DEX_CLIENT_SECRET
+              valueFrom: { secretKeyRef: { name: dex-credentials, key: client-secret } }
+          ports: [{ name: http, containerPort: 5556 }]
           securityContext: { runAsNonRoot: true, allowPrivilegeEscalation: false, readOnlyRootFilesystem: true, capabilities: { drop: [ALL] } }
           resources: { requests: { cpu: 50m, memory: 64Mi }, limits: { cpu: 200m, memory: 256Mi } }
-          readinessProbe: { httpGet: { path: /healthz, port: 5556 } }
+          readinessProbe: { httpGet: { path: /healthz, port: http }, periodSeconds: 5, timeoutSeconds: 3 }
+          livenessProbe: { httpGet: { path: /healthz, port: http }, periodSeconds: 15, timeoutSeconds: 3 }
+          volumeMounts: [{ name: dex-config, mountPath: /etc/dex, readOnly: true }, { name: dex-tmp, mountPath: /tmp }]
+      volumes:
+        - name: dex-config
+          configMap: { name: dex-config }
+        - name: dex-tmp
+          emptyDir: {}
+---
+apiVersion: apps/v1
+kind: Deployment
+metadata: { name: control-plane, namespace: platform-system }
+spec:
+  replicas: 1
+  selector: { matchLabels: { app: control-plane } }
+  template:
+    metadata: { labels: { app: control-plane } }
+    spec:
+      securityContext: { runAsNonRoot: true, seccompProfile: { type: RuntimeDefault } }
+      containers:
+        - name: control-plane
+          image: voice-command-ai-assistant:local
+          imagePullPolicy: IfNotPresent
+          command: ["uvicorn", "platform_api.app:app", "--host", "0.0.0.0", "--port", "8000"]
+          ports: [{ name: http, containerPort: 8000 }]
+          envFrom:
+            - secretRef: { name: postgresql-credentials }
+            - secretRef: { name: control-plane-credentials }
+          env:
+            - name: DATABASE_URL
+              value: postgresql://postgres@postgresql:5432/platform
+          securityContext: { runAsNonRoot: true, allowPrivilegeEscalation: false, readOnlyRootFilesystem: true, capabilities: { drop: [ALL] } }
+          resources: { requests: { cpu: 100m, memory: 128Mi }, limits: { cpu: 500m, memory: 512Mi } }
+          readinessProbe: { httpGet: { path: /v1/health/ready, port: http }, periodSeconds: 5, timeoutSeconds: 3 }
+          livenessProbe: { httpGet: { path: /v1/health/live, port: http }, periodSeconds: 15, timeoutSeconds: 3 }
+          volumeMounts: [{ name: tmp, mountPath: /tmp }]
+      volumes: [{ name: tmp, emptyDir: {} }]
+---
+apiVersion: v1
+kind: Service
+metadata: { name: control-plane, namespace: platform-system }
+spec: { selector: { app: control-plane }, ports: [{ name: http, port: 8000, targetPort: http }] }
+---
+apiVersion: networking.k8s.io/v1
+kind: NetworkPolicy
+metadata: { name: control-plane, namespace: platform-system }
+spec:
+  podSelector: { matchLabels: { app: control-plane } }
+  policyTypes: [Ingress, Egress]
+  ingress: [{ ports: [{ protocol: TCP, port: 8000 }] }]
+  egress:
+    - to: [{ podSelector: { matchLabels: { app: postgresql } } }]
+      ports: [{ protocol: TCP, port: 5432 }]
+    - to: [{ podSelector: { matchLabels: { app: dex } } }]
+      ports: [{ protocol: TCP, port: 5556 }]

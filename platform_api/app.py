@@ -82,6 +82,12 @@ def create_app(state: ControlPlane | None = None) -> FastAPI:
     def telemetry(_: Claims = Depends(require("read:telemetry"))) -> dict[str, Any]:
         return {"retention_days": 30, "metrics": control.metrics.snapshot()}
 
+    @app.get("/metrics", response_class=Response)
+    @traced
+    def metrics() -> Response:
+        lines = [f"control_plane_{name} {value}" for name, value in control.metrics.snapshot().items()]
+        return Response("\n".join(lines) + ("\n" if lines else ""), media_type="text/plain; version=0.0.4")
+
     @app.get("/v1/config")
     @traced
     def get_config(_: Claims = Depends(require("read:config"))) -> dict[str, Any]:
