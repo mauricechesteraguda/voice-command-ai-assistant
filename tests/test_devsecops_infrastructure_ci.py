@@ -1,9 +1,20 @@
 """Infrastructure and delivery contract checks."""
 
 from pathlib import Path
+import re
+import subprocess
 
 
 ROOT = Path(__file__).parents[1]
+
+
+def _files_text(directory: Path) -> str:
+    return "\n".join(path.read_text(errors="ignore") for path in directory.rglob("*") if path.is_file())
+
+
+def _git_remote() -> str:
+    result = subprocess.run(["git", "config", "--get", "remote.origin.url"], cwd=ROOT, text=True, capture_output=True, check=False)
+    return result.stdout.strip()
 
 
 def test_tc_devops_0030_protects_terraform_state_and_bootstrap() -> None:
@@ -34,6 +45,8 @@ def test_tc_devops_0034_validates_eks_profile() -> None:
 def test_tc_devops_0035_validates_gke_profile() -> None:
     path = ROOT / "terraform" / "profiles" / "gke"
     assert path.is_dir(), "TC-DEVOPS-0035 requires the GKE Terraform profile"
+    text = _files_text(path) + _files_text(ROOT / "terraform" / "modules" / "cluster")
+    assert "cloud-platform" not in text, "GKE nodes must not use the broad cloud-platform scope"
 
 
 def test_tc_devops_0036_validates_aks_profile() -> None:
@@ -59,11 +72,18 @@ def test_tc_devops_0039_issues_and_routes_tls_endpoint() -> None:
 def test_tc_devops_0040_runs_validation_tiers() -> None:
     path = ROOT / ".github" / "workflows"
     assert path.is_dir(), "TC-DEVOPS-0040 requires PR, nightly, and release validation workflows"
+    workflow = _files_text(path)
+    assert "terraform init" in workflow and "backend=false" not in workflow
+    assert "terraform apply" in workflow and "id-token: write" in workflow
 
 
 def test_tc_devops_0041_uses_least_privilege_ci_oidc() -> None:
     path = ROOT / ".github" / "workflows"
     assert path.is_dir(), "TC-DEVOPS-0041 requires least-privilege CI OIDC permissions"
+    text = _files_text(path)
+    arn = re.compile(r"arn:aws:iam::\d{12}:oidc-provider/[A-Za-z0-9._/-]+")
+    assert arn.search(text), "AWS OIDC ARN must include an account and provider"
+    assert "sub" in text and "aud" in text and "token.actions.githubusercontent.com" in text
 
 
 def test_tc_devops_0042_publishes_artifact_evidence() -> None:
@@ -79,3 +99,5 @@ def test_tc_devops_0043_updates_dependencies_and_builds_multiarch() -> None:
 def test_tc_devops_0044_documents_and_validates_k3s() -> None:
     path = ROOT / "docs" / "infrastructure" / "k3s.md"
     assert path.is_file(), "TC-DEVOPS-0044 requires k3s validation documentation"
+    text = path.read_text().lower()
+    assert all(command in text for command in ("install", "validate", "backup", "teardown", "recovery"))
