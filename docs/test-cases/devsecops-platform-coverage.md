@@ -1,7 +1,7 @@
 # DevSecOps platform test coverage
 
-- **Requirements:** 60/60 covered (100%).
-- **Cases:** 60 immutable sequential cases (`TC-DEVOPS-0001`–`TC-DEVOPS-0060`).
+- **Requirements:** 64/64 covered (100%).
+- **Cases:** 64 immutable sequential cases (`TC-DEVOPS-0001`–`TC-DEVOPS-0064`).
 - **Execution:** every case is `Not Run`; QA Owner, QA Evidence, Notes, and Automated Test Ref are blank.
 - **Existing runtime:** the sealed 81-test conversation flow is a regression requirement and is not modified.
 
@@ -9,12 +9,12 @@
 
 - Regression: 1
 - Functional: 4
-- Security: 13
+- Security: 15
 - Privacy: 4
 - Data: 2
 - Recovery: 4
-- Packaging: 1
-- Validation: 4
+- Packaging: 2
+- Validation: 5
 - GitOps: 4
 - Observability: 2
 - Infrastructure: 7
@@ -36,6 +36,13 @@ No applicable approved category is N/A: the catalog covers runtime regression, A
 ## Open questions
 
 None.
+
+## Focused kind readiness summary
+
+- Added four RED cases covering deterministic PostgreSQL credential bootstrap, runnable Dex readiness, control-plane local image loading, and the bounded API/enrollment/signed-config/consent/metrics flow.
+- New totals: 64 cases, 64 requirements, 100% catalog coverage; 4 newly added automated references (all intentionally RED until runtime contracts exist).
+- Categories added/extended: Security (15), Packaging (2), Validation (5).
+- Open questions: None.
 
 ## Four highest seams
 
