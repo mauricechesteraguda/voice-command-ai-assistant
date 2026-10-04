@@ -1,0 +1,6 @@
+apiVersion: v1
+kind: ConfigMap
+metadata: { name: rollback-policy, namespace: argocd }
+data:
+  trigger: "Rollback when health checks fail or SLO burn exceeds error budget."
+  method: "Pin previous known-good Git revision and sync with prune/selfHeal enabled."

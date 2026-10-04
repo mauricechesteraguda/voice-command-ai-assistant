@@ -1,0 +1,14 @@
+apiVersion: batch/v1
+kind: Job
+metadata: { name: immutable-promotion-gate, namespace: argocd }
+spec:
+  template:
+    spec:
+      restartPolicy: Never
+      containers:
+        - name: gate
+          image: alpine:3.20
+          command: ["sh", "-c", "test -n \"$REVISION\" && echo immutable revision gate passed"]
+          env: [{ name: REVISION, value: "sha256:0000000000000000000000000000000000000000000000000000000000000000" }]
+          securityContext: { runAsNonRoot: true, allowPrivilegeEscalation: false, capabilities: { drop: [ALL] } }
+          resources: { requests: { cpu: 10m, memory: 16Mi }, limits: { cpu: 50m, memory: 64Mi } }

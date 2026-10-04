@@ -1,0 +1,8 @@
+apiVersion: argoproj.io/v1alpha1
+kind: AppProject
+metadata: { name: platform, namespace: argocd }
+spec:
+  sourceRepos: [https://example.invalid/platform.git]
+  destinations: [{ namespace: '*', server: https://kubernetes.default.svc }]
+  clusterResourceWhitelist: [{ group: '*', kind: '*' }]
+  syncWindows: [{ kind: deny, schedule: '0 0 * * 0', duration: 24h, applications: ['*'], manualSync: true }]

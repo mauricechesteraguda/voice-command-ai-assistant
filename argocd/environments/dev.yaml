@@ -1,0 +1,12 @@
+apiVersion: argoproj.io/v1alpha1
+kind: ApplicationSet
+metadata: { name: platform-environments, namespace: argocd }
+spec:
+  generators: [{ list: { elements: [{ environment: dev, cluster: in-cluster }, { environment: staging, cluster: in-cluster }, { environment: prod, cluster: in-cluster }] } }]
+  template:
+    metadata: { name: 'platform-{{environment}}' }
+    spec:
+      project: platform
+      source: { repoURL: https://example.invalid/platform.git, targetRevision: main, path: helm/app }
+      destination: { name: '{{cluster}}', namespace: 'platform-{{environment}}' }
+      syncPolicy: { automated: { prune: true, selfHeal: true } }
