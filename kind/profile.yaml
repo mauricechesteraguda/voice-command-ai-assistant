@@ -1,0 +1,9 @@
+apiVersion: v1
+kind: ConfigMap
+metadata: { name: kind-platform-profile, namespace: kube-system }
+data:
+  cpu: "4"
+  memory: 8Gi
+  postgres: local
+  dex: local
+  tls: local-cert-manager

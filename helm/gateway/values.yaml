@@ -1,0 +1,2 @@
+hostname: voice.local
+clusterIssuer: platform-self-signed

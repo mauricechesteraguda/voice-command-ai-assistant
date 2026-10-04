@@ -1,0 +1,51 @@
+apiVersion: v1
+kind: Namespace
+metadata: { name: platform-system, labels: { pod-security.kubernetes.io/enforce: restricted } }
+---
+apiVersion: apps/v1
+kind: StatefulSet
+metadata: { name: postgresql, namespace: platform-system }
+spec:
+  serviceName: postgresql
+  replicas: 1
+  selector: { matchLabels: { app: postgresql } }
+  template:
+    metadata: { labels: { app: postgresql } }
+    spec:
+      securityContext: { runAsNonRoot: true, seccompProfile: { type: RuntimeDefault } }
+      containers:
+        - name: postgres
+          image: postgres:16.4-alpine
+          ports: [{ containerPort: 5432 }]
+          env: [{ name: POSTGRES_DB, value: platform }]
+          envFrom: [{ secretRef: { name: postgresql-credentials } }]
+          securityContext: { runAsNonRoot: true, allowPrivilegeEscalation: false, capabilities: { drop: [ALL] } }
+          resources: { requests: { cpu: 100m, memory: 256Mi }, limits: { cpu: 500m, memory: 1Gi } }
+          readinessProbe: { exec: { command: ["pg_isready", "-U", "postgres"] } }
+          volumeMounts: [{ name: data, mountPath: /var/lib/postgresql/data }]
+  volumeClaimTemplates:
+    - metadata: { name: data }
+      spec: { accessModes: [ReadWriteOnce], resources: { requests: { storage: 10Gi } } }
+---
+apiVersion: v1
+kind: Service
+metadata: { name: postgresql, namespace: platform-system }
+spec: { selector: { app: postgresql }, ports: [{ port: 5432 }] }
+---
+apiVersion: apps/v1
+kind: Deployment
+metadata: { name: dex, namespace: platform-system }
+spec:
+  replicas: 1
+  selector: { matchLabels: { app: dex } }
+  template:
+    metadata: { labels: { app: dex } }
+    spec:
+      securityContext: { runAsNonRoot: true, seccompProfile: { type: RuntimeDefault } }
+      containers:
+        - name: dex
+          image: ghcr.io/dexidp/dex:v2.41.1
+          args: ["dex", " serve", "/etc/dex/config.yaml"]
+          securityContext: { runAsNonRoot: true, allowPrivilegeEscalation: false, readOnlyRootFilesystem: true, capabilities: { drop: [ALL] } }
+          resources: { requests: { cpu: 50m, memory: 64Mi }, limits: { cpu: 200m, memory: 256Mi } }
+          readinessProbe: { httpGet: { path: /healthz, port: 5556 } }

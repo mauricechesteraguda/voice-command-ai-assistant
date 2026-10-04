@@ -1,0 +1,16 @@
+apiVersion: gateway.networking.k8s.io/v1
+kind: Gateway
+metadata:
+  name: platform-gateway
+  annotations:
+    cert-manager.io/cluster-issuer: {{ .Values.clusterIssuer | quote }}
+    external-dns.alpha.kubernetes.io/hostname: {{ .Values.hostname | quote }}
+spec:
+  gatewayClassName: istio
+  listeners:
+    - name: https
+      protocol: HTTPS
+      port: 443
+      hostname: {{ .Values.hostname | quote }}
+      tls: { mode: Terminate, certificateRefs: [{ name: platform-tls }] }
+      allowedRoutes: { namespaces: { from: Same } }

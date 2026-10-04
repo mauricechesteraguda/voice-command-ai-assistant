@@ -1,0 +1,17 @@
+nameOverride: voice-command-api
+image:
+  repository: voice-command-api
+  tag: "0.1.0"
+  digest: "sha256:0000000000000000000000000000000000000000000000000000000000000000"
+service:
+  port: 8000
+migration:
+  enabled: true
+  image: postgres:16.4-alpine
+  hookWeight: "-5"
+externalSecrets:
+  secretStore: platform-secrets
+  keys: [DATABASE_URL, OIDC_CLIENT_SECRET]
+resources:
+  requests: { cpu: 100m, memory: 128Mi }
+  limits: { cpu: 500m, memory: 512Mi }
