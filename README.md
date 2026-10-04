@@ -26,11 +26,6 @@ flowchart LR
   Consent --> LLM
 ```
 
-Happy flow: validate dependencies → explicitly provision Whisper, Piper, and
-Ollama → readiness check → capture → local transcription → private generation
-→ clause playback → cancellation-safe stop. Provisioning validates
-completeness/checksums and preserves the prior active artifact on partial
-failure.
 
 ```bash
 cp .env.example .env
@@ -76,23 +71,6 @@ oldest messages evicted until the configured budget is met. UTF-8 byte size is
 enforced separately by `max_bytes`; this estimate is intentionally a bound for
 memory management, not a claim about any model's tokenizer.
 
-## Happy flow and interruption
-
-```mermaid
-flowchart TD
-    Start([Start]) --> Ready[Check microphone permission and local model]
-    Ready --> Listen[Listen continuously]
-    Listen --> Capture[Capture audio]
-    Capture --> Transcribe[Transcribe locally with MLX Whisper]
-    Transcribe --> Prompt[Add accepted turn to bounded context]
-    Prompt --> Stream[Stream response from private Ollama]
-    Stream --> Clause[Buffer complete clauses]
-    Clause --> Speak[Speak with /usr/bin/say]
-    Speak --> Listen
-    Speak -. natural barge-in .-> Cancel[Cancel active turn and stop playback]
-    Cancel --> Reject[Reject stale generation output]
-    Reject --> Listen
-```
 
 ## Prerequisites
 
@@ -220,3 +198,24 @@ python -m pytest -q
 ## License
 
 This project is licensed under the [MIT License](LICENSE).
+
+
+## Contribution
+
+This project is open for collaboration. If you wish to contribute:
+
+    Fork the repository.
+    Create a feature branch (git checkout -b feature/your-feature-name).
+    Commit your changes (git commit -m 'Add your feature').
+    Push to the branch (git push origin feature/your-feature-name).
+    Open a pull request.
+
+## Contact
+
+For any questions or inquiries, please reach out to www.linkedin.com/in/agudatech/.
+
+## Support
+
+If you find this project helpful and would like to support its ongoing development, consider buying me a coffee! Your support helps me keep working on this project and developing more features.
+
+[![Buy Me a Coffee](https://www.buymeacoffee.com/assets/img/custom_images/yellow_img.png)](https://www.buymeacoffee.com/mauriceague)
