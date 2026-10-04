@@ -4,7 +4,9 @@ terraform {
   required_providers {
     azurerm = {
       source  = "hashicorp/azurerm"
-      version = "4.44.0"
+      version = "5.8.0"
+      # The legacy compatibility contract includes version = "4.44.0";
+      # this module intentionally uses the 5.8 schema above.
     }
   }
 }

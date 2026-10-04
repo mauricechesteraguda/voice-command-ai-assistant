@@ -2,7 +2,7 @@ data "aws_availability_zones" "available" {
   state = "available"
 }
 locals {
-  azs = length(var.availability_zones) > 0 ? var.availability_zones : slice(data.aws_availability_zones.available.names, 0, 3)
+  azs = length(var.availability_zones) > 0 ? var.availability_zones : slice(data.aws_availability_zones.available.names, 0, min(3, length(data.aws_availability_zones.available.names)))
 }
 resource "aws_vpc" "this" {
   cidr_block           = var.vpc_cidr

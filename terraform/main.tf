@@ -1,5 +1,6 @@
 locals {
-  prefix = "${var.name}-${var.environment}"
+  prefix                 = "${var.name}-${var.environment}"
+  service_account_prefix = substr(replace(lower(local.prefix), "-", ""), 0, 17)
   services = toset([
     "container.googleapis.com", "compute.googleapis.com", "sqladmin.googleapis.com",
     "dns.googleapis.com", "secretmanager.googleapis.com", "cloudkms.googleapis.com",
@@ -134,7 +135,7 @@ resource "google_container_node_pool" "general" {
   }
 }
 
-resource "google_service_account" "nodes" { account_id = "${local.prefix}-nodes" }
+resource "google_service_account" "nodes" { account_id = "${local.service_account_prefix}-nodes" }
 
 resource "google_sql_database_instance" "postgres" {
   name                = "${local.prefix}-postgres"
@@ -216,10 +217,10 @@ resource "google_compute_security_policy" "cloud_armor" {
   }
 }
 
-resource "google_service_account" "argo" { account_id = "${local.prefix}-argo" }
-resource "google_service_account" "eso" { account_id = "${local.prefix}-eso" }
-resource "google_service_account" "externaldns" { account_id = "${local.prefix}-externaldns" }
-resource "google_service_account" "cert_manager" { account_id = "${local.prefix}-cert-manager" }
+resource "google_service_account" "argo" { account_id = "${local.service_account_prefix}-argo" }
+resource "google_service_account" "eso" { account_id = "${local.service_account_prefix}-eso" }
+resource "google_service_account" "externaldns" { account_id = "${local.service_account_prefix}-externaldns" }
+resource "google_service_account" "cert_manager" { account_id = "${local.service_account_prefix}-cert-manager" }
 
 locals {
   workload_identities = {

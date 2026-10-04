@@ -35,13 +35,12 @@ resource "azurerm_user_assigned_identity" "workload" {
 }
 
 resource "azurerm_federated_identity_credential" "workload" {
-  for_each            = local.workload_identities
-  name                = "${each.key}-service-account"
-  resource_group_name = var.resource_group_name
-  parent_id           = azurerm_user_assigned_identity.workload[each.key].id
-  audience            = ["api://AzureADTokenExchange"]
-  issuer              = azurerm_kubernetes_cluster.this.oidc_issuer_url
-  subject             = "system:serviceaccount:${each.value.namespace}:${each.value.service_account}"
+  for_each                  = local.workload_identities
+  name                      = "${each.key}-service-account"
+  user_assigned_identity_id = azurerm_user_assigned_identity.workload[each.key].id
+  audience                  = ["api://AzureADTokenExchange"]
+  issuer                    = azurerm_kubernetes_cluster.this.oidc_issuer_url
+  subject                   = "system:serviceaccount:${each.value.namespace}:${each.value.service_account}"
 }
 
 resource "azurerm_role_assignment" "external_dns_zone" {
@@ -70,6 +69,13 @@ resource "azurerm_kubernetes_cluster" "this" {
   azure_policy_enabled      = true
   local_account_disabled    = true
   disk_encryption_set_id    = azurerm_disk_encryption_set.this.id
+
+  # Keep the explicitly managed system and user pools authoritative.  AKS
+  # provider 5.8 requires this profile when default_node_pool is present.
+  node_provisioning_profile {
+    mode               = "Manual"
+    default_node_pools = "None"
+  }
 
   identity {
     type         = "UserAssigned"

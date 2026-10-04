@@ -4,10 +4,9 @@ resource "azurerm_private_dns_zone" "postgres" {
 }
 
 resource "azurerm_private_dns_zone_virtual_network_link" "postgres" {
-  name                  = "${var.name}-postgres-link"
-  private_dns_zone_name = azurerm_private_dns_zone.postgres.name
-  virtual_network_id    = var.vnet_id
-  resource_group_name   = var.resource_group_name
+  name                = "${var.name}-postgres-link"
+  private_dns_zone_id = azurerm_private_dns_zone.postgres.id
+  virtual_network_id  = var.vnet_id
 }
 
 resource "azurerm_postgresql_flexible_server" "this" {
@@ -48,7 +47,7 @@ resource "azurerm_key_vault" "this" {
   sku_name                      = "standard"
   purge_protection_enabled      = true
   soft_delete_retention_days    = 90
-  enable_rbac_authorization     = true
+  rbac_authorization_enabled    = true
   public_network_access_enabled = false
   lifecycle { prevent_destroy = true }
 }
