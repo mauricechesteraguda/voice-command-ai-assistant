@@ -1,0 +1,27 @@
+name: PR validation
+on: pull_request
+permissions:
+  contents: read
+  security-events: write
+concurrency:
+  group: pr-${{ github.event.pull_request.number }}
+  cancel-in-progress: true
+jobs:
+  static:
+    timeout-minutes: 15
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@11bd71901bbe5b1630ceea73d27597364c9af683
+      - uses: actions/setup-python@82c7e631bb3cdc910f68e0081d67478d79c6982d
+        with: {python-version: '3.10'}
+      - run: python3 scripts/security/native-validators.py
+      - run: SECURITY_DRY_RUN=1 scripts/security/trivy.sh
+      - run: SECURITY_DRY_RUN=1 scripts/security/checkov.sh
+      - run: SECURITY_DRY_RUN=1 scripts/security/gitleaks.sh
+  kind-smoke:
+    timeout-minutes: 20
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@11bd71901bbe5b1630ceea73d27597364c9af683
+      - run: scripts/kind-up.sh
+      - run: scripts/kind-health.sh

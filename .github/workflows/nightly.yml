@@ -1,0 +1,18 @@
+name: Nightly full validation
+on:
+  schedule: [{cron: '17 3 * * *'}]
+  workflow_dispatch:
+permissions:
+  contents: read
+  security-events: write
+jobs:
+  full:
+    timeout-minutes: 45
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@11bd71901bbe5b1630ceea73d27597364c9af683
+      - run: SECURITY_DRY_RUN=1 scripts/security/trivy.sh
+      - run: SECURITY_DRY_RUN=1 scripts/security/checkov.sh
+      - run: SECURITY_DRY_RUN=1 scripts/security/gitleaks.sh
+      - run: scripts/kind-up.sh
+      - run: scripts/kind-health.sh

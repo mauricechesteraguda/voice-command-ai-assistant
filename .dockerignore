@@ -1,9 +1,8 @@
 .git
-.gitignore
 .venv
 __pycache__
 *.pyc
 .env
-.trailmap
-.serena
-agent-trace
+scan-reports
+generated-secrets
+generated-certs

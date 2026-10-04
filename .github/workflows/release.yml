@@ -1,0 +1,31 @@
+name: Multi-architecture release
+on:
+  push: {tags: ['v*.*.*']}
+permissions:
+  contents: read
+  packages: write
+  id-token: write
+  attestations: write
+jobs:
+  release:
+    timeout-minutes: 30
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@11bd71901bbe5b1630ceea73d27597364c9af683
+      - uses: docker/setup-qemu-action@eadef62e3e6c5ff9e8a7b1d2f4c3a2b1c0d9e8f7
+      - uses: docker/setup-buildx-action@d70bba72b780a9c0b7c4f5d1f3b5f0e5b6c7d8e9
+      - uses: docker/login-action@9780b0c442fbb1117ed29e0efdff1e18412f7567
+        with:
+          registry: ghcr.io
+          username: ${{ github.actor }}
+          password: ${{ secrets.GITHUB_TOKEN }}
+      - uses: docker/build-push-action@ca052bb54ab0790a636c8b7f0e6f1f43a5f8c2a
+        with:
+          push: true
+          platforms: linux/amd64,linux/arm64
+          provenance: true
+          sbom: true
+          tags: ghcr.io/${{ github.repository }}:${{ github.ref_name }}
+      - run: syft dir:. -o cyclonedx-json=sbom.json
+      - run: cosign sign --yes ghcr.io/${{ github.repository }}:${{ github.ref_name }}
+      - run: cosign attest --yes --predicate sbom.json --type cyclonedx ghcr.io/${{ github.repository }}:${{ github.ref_name }}

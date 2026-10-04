@@ -1,0 +1,22 @@
+name: Terraform OIDC
+on:
+  workflow_dispatch:
+    inputs:
+      command:
+        description: plan or apply
+        required: true
+        default: plan
+permissions:
+  contents: read
+  id-token: write
+jobs:
+  terraform:
+    environment: infrastructure-approval
+    timeout-minutes: 30
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@11bd71901bbe5b1630ceea73d27597364c9af683
+      - name: OIDC placeholder
+        run: test -n "${ACTIONS_ID_TOKEN_REQUEST_URL}" || true
+      - run: terraform -chdir=terraform init -backend=false
+      - run: terraform -chdir=terraform ${{ inputs.command == 'apply' && 'plan -out=tfplan' || 'plan' }}

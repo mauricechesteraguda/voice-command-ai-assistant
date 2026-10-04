@@ -1,0 +1,6 @@
+[extend]
+useDefault = true
+
+[allowlist]
+description = "No repository-wide secret allowlist; examples must use placeholders."
+paths = ['''(^|/)\.env\.example$''']

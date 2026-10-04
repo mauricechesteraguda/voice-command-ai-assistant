@@ -1,0 +1,6 @@
+quiet: true
+compact: true
+framework:
+  - terraform
+  - kubernetes
+download-external-modules: false

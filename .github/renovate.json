@@ -1,0 +1,9 @@
+{
+  "extends": ["config:recommended", ":pinDigests"],
+  "dependencyDashboard": true,
+  "rangeStrategy": "pin",
+  "labels": ["dependencies"],
+  "schedule": ["before 04:00 on monday"],
+  "vulnerabilityAlerts": {"enabled": true},
+  "packageRules": [{"matchManagers": ["github-actions"], "automerge": false}]
+}

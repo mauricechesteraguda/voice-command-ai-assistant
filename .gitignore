@@ -3,3 +3,17 @@
 speech.mp3
 .trailmap/
 .serena/
+*.tfstate
+*.tfstate.*
+.terraform/
+crash.log
+crash.*.log
+override.tf
+override.tf.json
+*_override.tf
+*_override.tf.json
+*.kubeconfig
+kubeconfig
+generated-secrets/
+generated-certs/
+scan-reports/
