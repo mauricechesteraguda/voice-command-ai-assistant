@@ -7,7 +7,7 @@ service:
   port: 8000
 migration:
   enabled: true
-  image: postgres:16.4-alpine
+  image: voice-command-api:0.1.0
   hookWeight: "-5"
 externalSecrets:
   secretStore: platform-secrets

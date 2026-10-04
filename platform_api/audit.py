@@ -23,6 +23,10 @@ class AuditLog:
 
     @traced
     def events(self) -> tuple[AuditEvent, ...]:
+        if self.repository is not None and hasattr(self.repository, "list_audit"):
+            records = self.repository.list_audit()
+            if records:
+                return tuple(AuditEvent(r["actor"], r["action"], r["outcome"], r["created_at"], r["metadata"]) for r in records)
         return tuple(self._events)
 
     @traced

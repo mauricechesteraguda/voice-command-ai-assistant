@@ -1,14 +1,16 @@
 """Small DB-API PostgreSQL repository seam; no driver is imported at module load."""
 from __future__ import annotations
 from datetime import datetime, timezone
+import os
 from typing import Any, Callable
+from .observability import traced
 
 
 class PostgresRepository:
     """Transactional persistence with an injectable connection factory.
 
-    Passing no factory gives a deterministic process-local adapter for unit/dev use;
-    production must provide DATABASE_URL and a factory (psycopg is deliberately lazy).
+    An unconfigured repository is only an explicit injected test/dev adapter. Production
+    construction goes through ``from_environment`` and fails closed without DATABASE_URL.
     """
     def __init__(self, connection_factory: Callable[[], Any] | None = None) -> None:
         self.factory = connection_factory
@@ -17,6 +19,16 @@ class PostgresRepository:
         self.audit_events: list[dict[str, Any]] = []
         self.telemetry_events: list[dict[str, Any]] = []
         self.idempotency: dict[str, dict[str, Any]] = {}
+
+    @classmethod
+    def from_environment(cls) -> "PostgresRepository":
+        dsn = os.getenv("DATABASE_URL", "").strip()
+        if not dsn:
+            raise RuntimeError("DATABASE_URL is required")
+        def connect() -> Any:
+            import psycopg
+            return psycopg.connect(dsn)
+        return cls(connect)
 
     def transaction(self):
         return _Transaction(self)
@@ -57,10 +69,36 @@ class PostgresRepository:
             with conn.cursor() as cur: cur.execute("INSERT INTO admin_audit_events(actor, action, outcome, metadata_json) VALUES (%s,%s,%s,%s)", (event["actor"], event["action"], event["outcome"], event["metadata"]))
             conn.commit()
 
+    @traced
+    def list_audit(self) -> list[dict[str, Any]]:
+        if self.factory is None: return list(self.audit_events)
+        with self.factory() as conn:
+            with conn.cursor() as cur:
+                cur.execute("SELECT actor, action, outcome, metadata_json, created_at FROM admin_audit_events ORDER BY id")
+                rows = cur.fetchall()
+        return [{"actor": r[0], "action": r[1], "outcome": r[2], "metadata": r[3], "created_at": r[4]} for r in rows]
+
     def append_telemetry(self, metadata: dict[str, Any]) -> None:
         if self.factory is None: self.telemetry_events.append({"metadata": dict(metadata), "created_at": datetime.now(timezone.utc)}); return
         with self.factory() as conn:
             with conn.cursor() as cur: cur.execute("INSERT INTO telemetry_events(metadata_json) VALUES (%s)", (metadata,))
+            conn.commit()
+
+    @traced
+    def get_idempotency(self, key: str) -> dict[str, Any] | None:
+        if self.factory is None: return self.idempotency.get(key)
+        with self.factory() as conn:
+            with conn.cursor() as cur:
+                cur.execute("SELECT response_json FROM idempotency_keys WHERE key=%s", (key,))
+                row = cur.fetchone()
+        return None if row is None else dict(row[0])
+
+    @traced
+    def save_idempotency(self, key: str, response: dict[str, Any]) -> None:
+        if self.factory is None: self.idempotency[key] = dict(response); return
+        with self.factory() as conn:
+            with conn.cursor() as cur:
+                cur.execute("INSERT INTO idempotency_keys(key,response_json) VALUES (%s,%s) ON CONFLICT(key) DO NOTHING", (key, response))
             conn.commit()
 
     def purge(self, *, telemetry_days: int = 30, audit_days: int = 365) -> int:

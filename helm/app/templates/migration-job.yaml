@@ -1,4 +1,5 @@
 {{- if .Values.migration.enabled }}
+# migration-runner applies versioned SQL under an advisory lock.
 apiVersion: batch/v1
 kind: Job
 metadata:
@@ -19,8 +20,10 @@ spec:
       containers:
         - name: migrate
           image: "{{ .Values.migration.image }}"
-          command: ["sh", "-c", "echo migration contract: invoke application migration runner"]
+          command: ["python", "-m", "migrations.runner", "--fail"]
           securityContext: { runAsNonRoot: true, allowPrivilegeEscalation: false, readOnlyRootFilesystem: true, capabilities: { drop: [ALL] } }
-          envFrom: [{ secretRef: { name: voice-command-api-secrets } }]
+          env:
+            - name: DATABASE_URL
+              valueFrom: { secretKeyRef: { name: voice-command-api-secrets, key: DATABASE_URL } }
           resources: { requests: { cpu: 50m, memory: 64Mi }, limits: { cpu: 200m, memory: 256Mi } }
 {{- end }}

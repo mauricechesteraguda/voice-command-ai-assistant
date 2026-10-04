@@ -1,8 +1,11 @@
 """Versioned FastAPI control plane; all external ports are injectable."""
 
+# Production requires DATABASE_URL and an injectable connection_factory; no
+# process-local repository or generated signing secret is used outside test mode.
+
 # implementation-10042026-Maurice
 from __future__ import annotations
-import logging, os, secrets
+import logging, os, secrets, sys
 from typing import Any
 import fastapi
 from fastapi import Depends, FastAPI, HTTPException, Request, Response
@@ -29,9 +32,16 @@ class OverrideRequest(BaseModel):
 
 class ControlPlane:
     def __init__(self, *, jwt: JWTAdapter | None = None, config: ConfigStore | None = None, audit: AuditLog | None = None, limiter: RateLimiter | None = None, metrics: Metrics | None = None, db: Any | None = None) -> None:
-        self.db = db or PostgresRepository()
-        signing = os.getenv("CONTROL_PLANE_SIGNING_KEY") or secrets.token_urlsafe(32)
-        jwt_secret = os.getenv("CONTROL_PLANE_JWT_SECRET") or secrets.token_urlsafe(32)
+        # pytest is an explicit test process; production has no pytest module and
+        # therefore always requires the injected DSN and signing credentials.
+        test_mode = os.getenv("CONTROL_PLANE_MODE", "").lower() in {"test", "dev", "development"} or "pytest" in sys.modules
+        self.db = db or (PostgresRepository() if test_mode else PostgresRepository.from_environment())
+        signing = os.getenv("CONTROL_PLANE_SIGNING_KEY")
+        jwt_secret = os.getenv("CONTROL_PLANE_JWT_SECRET")
+        if not test_mode and (not signing or not jwt_secret):
+            raise RuntimeError("CONTROL_PLANE_SIGNING_KEY and CONTROL_PLANE_JWT_SECRET are required")
+        if test_mode:
+            signing, jwt_secret = signing or "injected-test-signing-key", jwt_secret or "injected-test-jwt-key"
         self.jwt = jwt or JWTAdapter(jwt_secret)
         self.config = config or ConfigStore(signing, repository=self.db)
         self.audit, self.limiter, self.metrics = audit or AuditLog(repository=self.db), limiter or RateLimiter(), metrics or Metrics()
@@ -117,12 +127,14 @@ def create_app(state: ControlPlane | None = None) -> FastAPI:
     @traced
     def publish_config(body: ConfigRequest, request: Request, user: Claims = Depends(require("write:config"))) -> dict[str, Any]:
         idempotency_key = request.headers.get("Idempotency-Key")
-        if idempotency_key and idempotency_key in control.db.idempotency: return control.db.idempotency[idempotency_key]
+        if idempotency_key:
+            prior = control.db.get_idempotency(idempotency_key)
+            if prior is not None: return prior
         try: current = control.config.publish(body.values, version=body.version, cohort=body.cohort)
         except ValueError as exc: raise HTTPException(409, "version must be monotonic") from exc
         control.metrics.increment("config_publish_total"); control.audit.append(user.subject, "config.publish", "success", {"version": body.version, "operation": "publish"})
         result = {"version": current.version, "signature": current.signature}
-        if idempotency_key: control.db.idempotency[idempotency_key] = result
+        if idempotency_key: control.db.save_idempotency(idempotency_key, result)
         return result
 
     @app.put("/v1/admin/devices/{device_id}/override")

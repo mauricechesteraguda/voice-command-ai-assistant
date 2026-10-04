@@ -87,7 +87,7 @@ class OIDCAdapter:
             else:
                 x, y = int.from_bytes(_unb64(key["x"]), "big"), int.from_bytes(_unb64(key["y"]), "big")
                 ec.EllipticCurvePublicNumbers(x, y, ec.SECP256R1()).public_key().verify(sig, signing, ec.ECDSA(SHA256()))
-            if payload.get("iss", self.issuer).rstrip("/") != self.issuer or payload.get("aud") != audience or (client_id and payload.get("azp") not in {None, client_id}): raise ValueError("claims")
+            if not payload.get("iss") or payload["iss"].rstrip("/") != self.issuer or payload.get("aud") != audience or (client_id and payload.get("azp") not in {None, client_id}): raise ValueError("claims")
             if int(payload.get("exp", 0)) <= now: raise ValueError("expiry")
             return Claims(str(payload["sub"]), str(payload.get("role", "device")), audience, int(payload["exp"]), str(payload.get("jti", "")))
         except (ConnectionError, TimeoutError) as exc:
