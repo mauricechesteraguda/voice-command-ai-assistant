@@ -1,0 +1,13 @@
+project_id = "replace-with-non-secret-project-id"
+region     = "us-central1"
+zone       = "us-central1-a"
+environment = "dev"
+dns_name   = "platform.example."
+
+# Keep false until a reviewed Gateway address exists.
+enable_dns_record = false
+gateway_ip        = ""
+
+# Operational objectives; validate them with restore and failover drills.
+rpo_hours = 24
+rto_hours = 4
