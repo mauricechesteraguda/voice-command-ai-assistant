@@ -1,0 +1,16 @@
+apiVersion: monitoring.coreos.com/v1
+kind: PrometheusRule
+metadata: { name: platform-slo-rules, namespace: observability, labels: { release: kube-prometheus-stack } }
+spec:
+  groups:
+    - name: platform.slo
+      rules:
+        - alert: ApiAvailabilityBurnRate
+          expr: sum(rate(http_requests_total{job="voice-command-api",code=~"5.."}[5m])) / sum(rate(http_requests_total{job="voice-command-api"}[5m])) > 0.01
+          for: 10m
+          labels: { severity: warning, slo: availability }
+          annotations: { summary: API availability error budget burn is elevated }
+        - alert: ApiLatencySLO
+          expr: histogram_quantile(0.99, sum(rate(http_request_duration_seconds_bucket{job="voice-command-api"}[5m])) by (le)) > 0.5
+          for: 10m
+          labels: { severity: warning, slo: latency }

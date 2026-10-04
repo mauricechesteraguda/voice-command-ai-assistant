@@ -1,0 +1,9 @@
+apiVersion: monitoring.coreos.com/v1
+kind: AlertmanagerConfig
+metadata: { name: platform-alerts, namespace: observability }
+spec:
+  route: { receiver: disabled-until-eso }
+  receivers:
+    - name: disabled-until-eso
+      # No endpoints or credentials until ExternalSecret is Ready.
+      webhookConfigs: []

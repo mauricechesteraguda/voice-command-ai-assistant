@@ -1,0 +1,14 @@
+apiVersion: kyverno.io/v1
+kind: ClusterPolicy
+metadata: { name: secure-workloads }
+spec:
+  validationFailureAction: Enforce
+  background: true
+  rules:
+    - name: require-non-root
+      match: { any: [{ resources: { kinds: [Pod] } }] }
+      validate: { message: Must run as non-root, pattern: { spec: { securityContext: { runAsNonRoot: true } } } }
+    - name: require-resources
+      match: { any: [{ resources: { kinds: [Pod] } }] }
+      validate: { message: Containers require resource requests and limits, pattern: { spec: { containers: [{ resources: { requests: { cpu: '?*', memory: '?*' }, limits: { cpu: '?*', memory: '?*' } } }] } } }
+# Kyverno enforces the restricted workload contract.

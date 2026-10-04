@@ -1,0 +1,8 @@
+apiVersion: v1
+kind: ConfigMap
+metadata: { name: optional-logs-profile, namespace: observability }
+data:
+  profile: "disabled-by-default"
+  component: "Loki + Grafana Alloy"
+  retention: "7d"
+  security: "Run Alloy non-root with read-only root filesystem; enable only after ESO supplies storage credentials."

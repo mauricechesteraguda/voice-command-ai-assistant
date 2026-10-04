@@ -1,0 +1,12 @@
+apiVersion: argoproj.io/v1alpha1
+kind: Application
+metadata: { name: kube-prometheus-stack, namespace: argocd }
+spec:
+  project: platform
+  source:
+    repoURL: https://prometheus-community.github.io/helm-charts
+    chart: kube-prometheus-stack
+    targetRevision: 65.8.0
+    helm: { values: "prometheus:\n  prometheusSpec:\n    retention: 30d\n    resources:\n      requests: { cpu: 250m, memory: 512Mi }\n      limits: { cpu: 1, memory: 2Gi }\ngrafana:\n  enabled: true\n  persistence: { enabled: true, size: 5Gi }\nalertmanager:\n  enabled: true\n  alertmanagerSpec:\n    retention: 7d" }
+  destination: { server: https://kubernetes.default.svc, namespace: observability }
+  syncPolicy: { automated: { prune: true, selfHeal: true }, syncOptions: [CreateNamespace=true] }
