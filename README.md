@@ -22,11 +22,6 @@ flowchart LR
   Consent --> LLM
 ```
 
-Happy flow: validate dependencies → explicitly provision Whisper, Piper, and
-Ollama → readiness check → capture → local transcription → private generation
-→ clause playback → cancellation-safe stop. Provisioning validates
-completeness/checksums and preserves the prior active artifact on partial
-failure.
 
 ```bash
 cp .env.example .env
@@ -72,23 +67,6 @@ oldest messages evicted until the configured budget is met. UTF-8 byte size is
 enforced separately by `max_bytes`; this estimate is intentionally a bound for
 memory management, not a claim about any model's tokenizer.
 
-## Happy flow and interruption
-
-```mermaid
-flowchart TD
-    Start([Start]) --> Ready[Check microphone permission and local model]
-    Ready --> Listen[Listen continuously]
-    Listen --> Capture[Capture audio]
-    Capture --> Transcribe[Transcribe locally with MLX Whisper]
-    Transcribe --> Prompt[Add accepted turn to bounded context]
-    Prompt --> Stream[Stream response from private Ollama]
-    Stream --> Clause[Buffer complete clauses]
-    Clause --> Speak[Speak with /usr/bin/say]
-    Speak --> Listen
-    Speak -. natural barge-in .-> Cancel[Cancel active turn and stop playback]
-    Cancel --> Reject[Reject stale generation output]
-    Reject --> Listen
-```
 
 ## Prerequisites
 
