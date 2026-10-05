@@ -26,6 +26,8 @@
   contracts covered by 151 tests (81 existing runtime tests plus 64 platform cases).
 - Final validation includes Python 3.10 `pytest -x -q`, Terraform format/validate checks,
   and native Terraform tests where provider tooling is available. Local kind image pulls
-  remain externally blocked; no cloud environment was deployed and no live URL is claimed.
+   remain externally blocked; no cloud environment was deployed and no live URL is claimed.
+- Fixed Terraform workflow matrix expressions so manual runs execute only the selected
+  provider while retaining protected, checksum-verified apply behavior.
 
 Author Name: Aguda, Maurice

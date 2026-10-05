@@ -27,8 +27,7 @@ jobs:
     strategy:
       fail-fast: false
       matrix:
-        provider: [aws, gcp, azure]
-    if: inputs.provider == matrix.provider
+        provider: ${{ fromJSON(format('["{0}"]', inputs.provider)) }}
     env:
       TF_IN_AUTOMATION: "true"
       TF_CLI_ARGS: "-lock-timeout=5m"
@@ -94,14 +93,14 @@ jobs:
           retention-days: 7
 
   apply:
-    if: inputs.command == 'apply' && inputs.provider == matrix.provider
+    if: inputs.command == 'apply'
     needs: plan
     environment: infrastructure-approval
     timeout-minutes: 30
     runs-on: ubuntu-latest
     strategy:
       matrix:
-        provider: [aws, gcp, azure]
+        provider: ${{ fromJSON(format('["{0}"]', inputs.provider)) }}
     env:
       TF_IN_AUTOMATION: "true"
       TF_ROOT: ${{ matrix.provider == 'aws' && 'terraform/profiles/eks' || matrix.provider == 'azure' && 'terraform/azure/profiles/aks' || 'terraform' }}

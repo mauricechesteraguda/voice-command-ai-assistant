@@ -17,6 +17,45 @@ def _git_remote() -> str:
     return result.stdout.strip()
 
 
+def _terraform_workflow_jobs() -> dict[str, dict[str, object]]:
+    """Extract only the job-level strategy/condition contract from the workflow."""
+    text = (ROOT / ".github" / "workflows" / "terraform.yml").read_text()
+    jobs: dict[str, dict[str, object]] = {}
+    current: str | None = None
+    for line in text.splitlines():
+        if line.startswith("  ") and not line.startswith("    ") and line.endswith(":"):
+            current = line.strip()[:-1]
+            jobs[current] = {"if": None, "has_matrix": False}
+        elif current is not None:
+            stripped = line.strip()
+            if stripped == "matrix:":
+                jobs[current]["has_matrix"] = True
+            elif line.startswith("    if:"):
+                jobs[current]["if"] = stripped.removeprefix("if:").strip()
+    return jobs
+
+
+def _assert_matrix_filtering_is_at_valid_seam() -> None:
+    jobs = _terraform_workflow_jobs()
+    for job_name, contract in jobs.items():
+        condition = contract["if"]
+        if contract["has_matrix"] and isinstance(condition, str) and "matrix" in condition:
+            raise AssertionError(
+                f"job '{job_name}' has a job-level condition using matrix; "
+                "provider filtering must occur at a matrix-valid step/job strategy seam"
+            )
+    workflow = (ROOT / ".github" / "workflows" / "terraform.yml").read_text()
+    selected_provider_matrix = "provider: ${{ fromJSON(format('[\"{0}\"]', inputs.provider)) }}"
+    assert workflow.count(selected_provider_matrix) == 2, (
+        "plan and apply matrices must contain only the workflow_dispatch provider"
+    )
+    assert "if: inputs.command == 'apply'" in workflow
+    assert all(
+        f"if: matrix.provider == '{provider}'" in workflow
+        for provider in ("aws", "gcp", "azure")
+    ), "provider filtering must be expressed at a matrix-valid step seam"
+
+
 def test_tc_devops_0030_protects_terraform_state_and_bootstrap() -> None:
     path = ROOT / "terraform" / "bootstrap"
     assert path.is_dir(), "TC-DEVOPS-0030 requires protected remote state bootstrap"
@@ -88,6 +127,7 @@ def test_tc_devops_0040_runs_validation_tiers() -> None:
     assert "REQUIRED" not in workflow
     assert "needs:" in workflow and "infrastructure-approval" in workflow
     assert re.search(r"if:.*apply", workflow) and "tfplan" in workflow
+    _assert_matrix_filtering_is_at_valid_seam()
 
 
 def test_tc_devops_0041_uses_least_privilege_ci_oidc() -> None:
